@@ -1,1461 +1,1469 @@
 
 import os
+import re
 import warnings
-import streamlit as st
-import pandas as pd
 import numpy as np
+import pandas as pd
+import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
 
 from sklearn.compose import ColumnTransformer
+from sklearn.dummy import DummyClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.impute import SimpleImputer
+from sklearn.metrics import (
+    accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score,
+    confusion_matrix,
+    classification_report,
+)
+from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
-from sklearn.impute import SimpleImputer
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 st.set_page_config(
-    page_title="MediScope | SPARCS 2021",
+    page_title="MediScope | SPARCS Analytics",
     page_icon="🏥",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
-TARGET_FILE = "Hospital_Inpatient_Discharges__SPARCS_De-Identified___2021_20231012.csv"
-CHUNK_SIZE = 50000
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+TARGET_FILE = os.path.join(
+    BASE_DIR,
+    "Hospital_Inpatient_Discharges__SPARCS_De-Identified___2021_20231012.csv",
+)
 
-st.markdown("""
+NEON_CSS = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
+html, body, [class*="css"] {
+    font-family: 'Inter', sans-serif;
+}
+
 .stApp {
-    background: radial-gradient(ellipse at top left, #142345 0%, #080d19 48%, #060910 100%);
-    color: #edf4ff;
-    font-family: Inter, sans-serif;
+    background:
+        radial-gradient(circle at 10% 0%, rgba(0, 245, 212, 0.09), transparent 27%),
+        radial-gradient(circle at 90% 10%, rgba(123, 97, 255, 0.12), transparent 28%),
+        linear-gradient(135deg, #070b16 0%, #0b1020 50%, #080d19 100%);
+    color: #e5edff;
 }
 
 [data-testid="stHeader"] {
-    background: rgba(5, 10, 22, 0.65);
+    background: rgba(7, 11, 22, 0.78);
 }
 
 [data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #0e1830, #080d19);
-    border-right: 1px solid rgba(58, 210, 255, 0.22);
+    background: linear-gradient(180deg, #0b1222 0%, #10172b 100%);
+    border-right: 1px solid rgba(0, 245, 212, 0.22);
 }
 
-h1, h2, h3 {
-    color: #f1f7ff !important;
+[data-testid="stSidebar"] * {
+    color: #e5edff;
 }
 
-p, label, [data-testid="stMarkdownContainer"] {
-    color: #d2def3;
+.block-container {
+    padding-top: 1.6rem;
+    padding-bottom: 2.5rem;
+    max-width: 1600px;
 }
 
 .hero {
-    padding: 26px 28px;
-    border-radius: 18px;
-    margin-bottom: 18px;
-    border: 1px solid rgba(45, 212, 255, 0.35);
-    background: linear-gradient(115deg, rgba(20, 50, 91, 0.94), rgba(25, 20, 62, 0.92));
-    box-shadow: 0 0 26px rgba(0, 194, 255, 0.10);
-    animation: heroGlow 5s ease-in-out infinite alternate;
+    padding: 1.7rem 1.9rem;
+    border-radius: 22px;
+    background: linear-gradient(120deg, rgba(0, 245, 212, 0.10), rgba(123, 97, 255, 0.13));
+    border: 1px solid rgba(0, 245, 212, 0.28);
+    box-shadow: 0 0 28px rgba(0, 245, 212, 0.07);
+    animation: appear 0.8s ease-out;
 }
 
 .hero-title {
-    font-size: clamp(1.7rem, 3vw, 2.7rem);
+    color: #ffffff;
+    font-size: clamp(1.8rem, 3vw, 2.7rem);
     font-weight: 800;
     letter-spacing: -1px;
-    background: linear-gradient(90deg, #ffffff, #63e8ff, #a7a4ff);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
+    margin: 0;
+}
+
+.hero-title span {
+    color: #00f5d4;
+    text-shadow: 0 0 18px rgba(0, 245, 212, 0.35);
 }
 
 .hero-subtitle {
-    color: #b9c9e5;
-    margin-top: 8px;
+    color: #a8b7d8;
     font-size: 1rem;
+    margin-top: 0.55rem;
+}
+
+.section-title {
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: #e5edff;
+    margin-top: 0.3rem;
 }
 
 .metric-card {
-    background: linear-gradient(145deg, rgba(20, 35, 63, 0.96), rgba(12, 20, 39, 0.98));
-    border: 1px solid rgba(71, 205, 255, 0.25);
-    border-radius: 15px;
-    padding: 17px;
+    background: linear-gradient(145deg, rgba(20, 31, 55, 0.97), rgba(12, 19, 36, 0.97));
+    border: 1px solid rgba(105, 130, 190, 0.23);
+    border-radius: 17px;
+    padding: 1.05rem 1.1rem;
     min-height: 112px;
-    box-shadow: 0 0 18px rgba(35, 183, 255, 0.06);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.13);
+    transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+    animation: appear 0.65s ease-out;
+}
+
+.metric-card:hover {
+    transform: translateY(-3px);
+    border-color: rgba(0, 245, 212, 0.55);
+    box-shadow: 0 0 22px rgba(0, 245, 212, 0.09);
 }
 
 .metric-label {
-    font-size: 0.84rem;
-    color: #a9bddc;
+    color: #9eafd2;
+    font-size: 0.83rem;
+    font-weight: 500;
 }
 
 .metric-value {
-    font-size: clamp(1.25rem, 2vw, 1.9rem);
-    color: #70e7ff;
+    color: #ffffff;
+    font-size: clamp(1.3rem, 2vw, 1.85rem);
     font-weight: 800;
-    margin-top: 9px;
+    margin-top: 0.45rem;
     overflow-wrap: anywhere;
 }
 
-.section-card {
-    background: rgba(16, 27, 49, 0.65);
-    border: 1px solid rgba(130, 160, 205, 0.18);
-    border-radius: 14px;
-    padding: 15px 18px;
-    margin: 10px 0;
+.metric-accent {
+    color: #00f5d4;
 }
 
-.stButton button, .stDownloadButton button {
-    border: 1px solid #39cfff;
-    border-radius: 10px;
-    background: linear-gradient(100deg, #123e61, #30265e);
-    color: white;
-    transition: 0.2s ease;
+div[data-testid="stTabs"] button {
+    border-radius: 10px 10px 0 0;
+    font-weight: 600;
 }
 
-.stButton button:hover, .stDownloadButton button:hover {
-    border-color: #9cf2ff;
-    box-shadow: 0 0 16px rgba(57, 207, 255, 0.28);
-    transform: translateY(-1px);
+div[data-testid="stTabs"] button[aria-selected="true"] {
+    color: #00f5d4;
+    border-bottom-color: #00f5d4;
 }
 
 div[data-testid="stPlotlyChart"] {
-    background: rgba(12, 21, 40, 0.55);
-    border: 1px solid rgba(105, 154, 215, 0.16);
+    background: rgba(13, 20, 37, 0.72);
+    border: 1px solid rgba(105, 130, 190, 0.16);
+    border-radius: 15px;
+    padding: 0.3rem;
+}
+
+div[data-testid="stDataFrame"] {
+    border: 1px solid rgba(105, 130, 190, 0.2);
     border-radius: 12px;
-    padding: 4px;
+    overflow: hidden;
 }
 
-@keyframes heroGlow {
-    from { box-shadow: 0 0 14px rgba(0, 194, 255, 0.08); }
-    to { box-shadow: 0 0 28px rgba(103, 83, 255, 0.18); }
+.stButton button, .stDownloadButton button {
+    border-radius: 10px;
+    border: 1px solid rgba(0, 245, 212, 0.4);
+    background: linear-gradient(110deg, rgba(0, 245, 212, 0.13), rgba(123, 97, 255, 0.15));
+    color: #efffff;
+    transition: all 0.2s ease;
 }
 
-@media (max-width: 700px) {
-    .hero { padding: 18px; }
-    .metric-card { padding: 12px; }
+.stButton button:hover, .stDownloadButton button:hover {
+    border-color: #00f5d4;
+    box-shadow: 0 0 15px rgba(0, 245, 212, 0.12);
+    color: #ffffff;
+}
+
+div[data-testid="stAlert"] {
+    border-radius: 12px;
+}
+
+hr {
+    border-color: rgba(120, 145, 195, 0.18);
+}
+
+@keyframes appear {
+    from { opacity: 0; transform: translateY(7px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.01ms !important;
+    }
 }
 </style>
-""", unsafe_allow_html=True)
+"""
+
+st.markdown(NEON_CSS, unsafe_allow_html=True)
+
+PLOT_TEMPLATE = "plotly_dark"
+PLOT_BG = "rgba(13, 20, 37, 0.0)"
+PLOT_PAPER = "rgba(13, 20, 37, 0.0)"
+NEON_PALETTE = [
+    "#00F5D4",
+    "#7B61FF",
+    "#FF6B9D",
+    "#FFD166",
+    "#5AA9FF",
+    "#B8F35B",
+    "#FF9F43",
+    "#C792EA",
+]
 
 
-def find_column(columns, candidates):
-    normalized = {
-        str(column).strip().lower(): column
-        for column in columns
-    }
+def normalize_name(value):
+    return re.sub(r"[^a-z0-9]+", "", str(value).strip().lower())
 
-    for candidate in candidates:
-        if candidate.lower() in normalized:
-            return normalized[candidate.lower()]
 
-    for candidate in candidates:
-        for normalized_name, original_name in normalized.items():
-            if candidate.lower() in normalized_name:
-                return original_name
-
+def match_exact_column(columns, aliases):
+    normalized = {normalize_name(column): column for column in columns}
+    for alias in aliases:
+        found = normalized.get(normalize_name(alias))
+        if found is not None:
+            return found
     return None
 
 
-def clean_category(series, fallback="Unknown"):
-    result = series.astype("string").str.strip()
-    result = result.replace(
-        ["", "nan", "NaN", "None", "NULL", "N/A", "Not Available"],
-        pd.NA
-    )
-    return result.fillna(fallback).astype(str)
-
-
-def normalize_gender(series):
-    values = clean_category(series).str.upper()
-
-    mapping = {
-        "M": "Male",
-        "MALE": "Male",
-        "F": "Female",
-        "FEMALE": "Female",
-        "U": "Unknown",
-        "UNKNOWN": "Unknown",
-        "OTHER": "Other"
-    }
-
-    return values.map(mapping).fillna(
-        values.replace({"UNKNOWN": "Unknown"})
-    )
-
-
-def parse_numeric(series):
-    return pd.to_numeric(
-        series.astype(str)
-        .str.replace("$", "", regex=False)
+def clean_numeric(series):
+    cleaned = (
+        series.astype("string")
         .str.replace(",", "", regex=False)
+        .str.replace("$", "", regex=False)
         .str.replace("+", "", regex=False)
-        .str.strip(),
-        errors="coerce"
+        .str.strip()
+    )
+    return pd.to_numeric(cleaned, errors="coerce")
+
+
+def apply_standard_categories(df):
+    category_columns = [
+        "Facility_Name",
+        "County",
+        "Diagnosis_Category",
+        "Severity_Level",
+        "Payment_Type",
+        "Age_Group",
+        "Gender",
+        "Race",
+    ]
+
+    for column in category_columns:
+        if column not in df.columns:
+            df[column] = "Unknown"
+        else:
+            values = df[column].astype("string").str.strip()
+            values = values.replace("", pd.NA)
+            df[column] = values.fillna("Unknown").astype(str)
+
+    df["Gender"] = df["Gender"].replace(
+        {
+            "M": "Male",
+            "F": "Female",
+            "MALE": "Male",
+            "FEMALE": "Female",
+        }
     )
 
+    df["Payment_Type"] = df["Payment_Type"].replace(
+        {
+            "Private Health Insurance": "Private Insurance",
+            "Blue Cross": "Private Insurance",
+        }
+    )
 
-def standardize_columns(data):
-    data = data.copy()
-    data.columns = [str(c).strip() for c in data.columns]
-    columns = list(data.columns)
+    return df
 
-    mapping_candidates = {
+
+def iqr_outlier_count(series):
+    values = pd.to_numeric(series, errors="coerce").dropna()
+    if len(values) < 4:
+        return 0
+    q1 = values.quantile(0.25)
+    q3 = values.quantile(0.75)
+    iqr = q3 - q1
+    lower = q1 - 1.5 * iqr
+    upper = q3 + 1.5 * iqr
+    return int(((values < lower) | (values > upper)).sum())
+
+
+@st.cache_data(ttl=3600, show_spinner="Reading and preprocessing the SPARCS dataset...")
+def load_sparcs_data(file_path, mode, sample_limit):
+    if not os.path.isfile(file_path):
+        raise FileNotFoundError(
+            f"Dataset not found: {file_path}. Place the CSV in the same folder as app.py."
+        )
+
+    chunk_size = 100_000
+
+    if mode == "Sample":
+        raw = pd.read_csv(
+            file_path,
+            nrows=int(sample_limit),
+            low_memory=False,
+        )
+        rows_read = len(raw)
+        total_file_rows_read = False
+    else:
+        chunks = []
+        rows_read = 0
+        for chunk in pd.read_csv(
+            file_path,
+            chunksize=chunk_size,
+            low_memory=False,
+        ):
+            chunks.append(chunk)
+            rows_read += len(chunk)
+        if not chunks:
+            raise ValueError("The CSV file contains no rows.")
+        raw = pd.concat(chunks, ignore_index=True)
+        total_file_rows_read = True
+
+    raw.columns = [str(column).strip() for column in raw.columns]
+    raw = raw.loc[:, ~pd.Index(raw.columns).duplicated()].copy()
+
+    original_columns = list(raw.columns)
+
+    aliases = {
         "Length_of_Stay": [
-            "Length of Stay", "Length_of_Stay", "LOS"
+            "Length of Stay",
+            "Length_of_Stay",
         ],
         "Total_Charges": [
-            "Total Charges", "Total_Charges"
+            "Total Charges",
+            "Total_Charges",
         ],
         "Facility_Name": [
-            "Facility Name", "Facility_Name"
+            "Facility Name",
+            "Facility_Name",
         ],
         "County": [
-            "Hospital County", "County"
+            "Hospital County",
+            "Facility County",
+            "County",
+        ],
+        "Diagnosis_Category": [
+            "APR MDC Description",
+            "MDC Description",
+            "APR DRG Description",
+            "CCS Diagnosis Description",
+            "Diagnosis Category",
         ],
         "Severity_Level": [
             "APR Severity of Illness Description",
             "Severity of Illness Description",
-            "Severity Level"
+            "Severity Level",
         ],
         "Payment_Type": [
-            "Payment Typology 1", "Payment Type"
+            "Payment Typology 1",
+            "Payment Type",
         ],
         "Age_Group": [
-            "Age Group", "Age_Group"
+            "Age Group",
+            "Age_Group",
         ],
         "Gender": [
-            "Gender"
+            "Gender",
         ],
         "Race": [
-            "Race"
+            "Race",
+        ],
+        "Discharge_Year": [
+            "Discharge Year",
+            "Discharge_Year",
         ],
         "Discharge_Date": [
-            "Discharge Date", "Discharge_Date"
+            "Discharge Date",
+            "Discharge_Date",
         ],
-        "Diagnosis_Category": [
-            "CCS Diagnosis Description",
-            "APR DRG Description",
-            "APR MDC Description",
-            "Diagnosis Description",
-            "Diagnosis Category"
-        ],
-        "Diagnosis_Code": [
-            "CCS Diagnosis Code",
-            "APR DRG Code",
-            "Diagnosis Code"
-        ]
     }
 
-    for standard_name, candidates in mapping_candidates.items():
-        original = find_column(columns, candidates)
-        if original is not None and original != standard_name:
-            if standard_name not in data.columns:
-                data = data.rename(columns={original: standard_name})
+    mapping = {}
+    used_columns = set()
 
-    if "Length_of_Stay" not in data.columns:
-        data["Length_of_Stay"] = np.nan
+    for target, possible_names in aliases.items():
+        source = match_exact_column(
+            [column for column in original_columns if column not in used_columns],
+            possible_names,
+        )
+        if source is not None:
+            mapping[source] = target
+            used_columns.add(source)
 
-    if "Total_Charges" not in data.columns:
-        data["Total_Charges"] = np.nan
+    df = raw.rename(columns=mapping).copy()
 
-    defaults = {
-        "Facility_Name": "Unknown Facility",
-        "County": "Unknown County",
-        "Severity_Level": "Unknown",
-        "Payment_Type": "Unknown",
-        "Age_Group": "Unknown",
-        "Gender": "Unknown",
-        "Race": "Unknown",
-        "Diagnosis_Category": "Unknown Diagnosis",
-        "Diagnosis_Code": "Unknown",
-        "Discharge_Date": pd.NA
+    if "Length_of_Stay" not in df.columns:
+        raise ValueError(
+            "The required Length of Stay column could not be found. "
+            "Check the exact column headers in the source CSV."
+        )
+
+    report = {
+        "rows_read": int(rows_read),
+        "full_dataset_mode": bool(total_file_rows_read),
+        "raw_rows": int(len(df)),
+        "invalid_los_removed": 0,
+        "missing_charge_count": 0,
+        "missing_year_count": 0,
+        "outside_2021_count": 0,
+        "year_filter_applied": False,
+        "duplicate_rows": int(df.duplicated().sum()),
+        "available_source_columns": original_columns,
+        "matched_columns": mapping,
+        "year_validation": "No year or discharge date column was detected.",
     }
 
-    for column, default in defaults.items():
-        if column not in data.columns:
-            data[column] = default
+    df["Length_of_Stay"] = clean_numeric(df["Length_of_Stay"])
+    valid_los = df["Length_of_Stay"].notna() & (df["Length_of_Stay"] > 0)
+    report["invalid_los_removed"] = int((~valid_los).sum())
+    df = df.loc[valid_los].copy()
 
-    data["Length_of_Stay"] = parse_numeric(data["Length_of_Stay"])
-    data["Total_Charges"] = parse_numeric(data["Total_Charges"])
+    if "Total_Charges" in df.columns:
+        df["Total_Charges"] = clean_numeric(df["Total_Charges"])
+    else:
+        df["Total_Charges"] = np.nan
 
-    for column in [
-        "Facility_Name",
-        "County",
-        "Severity_Level",
-        "Payment_Type",
-        "Age_Group",
-        "Race",
-        "Diagnosis_Category",
-        "Diagnosis_Code"
-    ]:
-        data[column] = clean_category(data[column])
+    report["missing_charge_count"] = int(df["Total_Charges"].isna().sum())
 
-    data["Gender"] = normalize_gender(data["Gender"])
+    if "Discharge_Year" in df.columns:
+        year_values = clean_numeric(df["Discharge_Year"])
+        missing_year = year_values.isna()
+        outside_year = year_values.notna() & (year_values != 2021)
 
-    data["Severity_Level"] = (
-        data["Severity_Level"]
-        .str.replace(r"\s+", " ", regex=True)
-        .str.strip()
-    )
+        report["missing_year_count"] = int(missing_year.sum())
+        report["outside_2021_count"] = int(outside_year.sum())
+        report["year_filter_applied"] = True
 
-    data["Payment_Type"] = (
-        data["Payment_Type"]
-        .replace({
-            "Private Health Insurance": "Private Insurance",
-            "Blue Cross/Blue Shield": "Blue Cross/Blue Shield",
-            "Self Pay": "Self-Pay"
-        })
-    )
-
-    data["Discharge_Date"] = pd.to_datetime(
-        data["Discharge_Date"],
-        errors="coerce"
-    )
-
-    return data
-
-
-@st.cache_data(show_spinner=False, max_entries=4)
-def load_sparcs_data(file_path, sample_limit):
-    if not os.path.isfile(file_path):
-        raise FileNotFoundError(
-            f"Dataset not found: {file_path}"
+        keep_year = year_values == 2021
+        df = df.loc[keep_year].copy()
+        report["year_validation"] = (
+            "Discharge Year was detected. Rows with missing years or years other than "
+            "2021 were excluded from the analysis."
         )
 
-    parts = []
-    rows_read = 0
-    columns = None
+    elif "Discharge_Date" in df.columns:
+        parsed_dates = pd.to_datetime(df["Discharge_Date"], errors="coerce")
+        missing_year = parsed_dates.isna()
+        outside_year = parsed_dates.notna() & (parsed_dates.dt.year != 2021)
 
-    with open(file_path, "rb") as file_handle:
-        for chunk in pd.read_csv(
-            file_handle,
-            chunksize=CHUNK_SIZE,
-            low_memory=False
-        ):
-            if columns is None:
-                columns = list(chunk.columns)
+        report["missing_year_count"] = int(missing_year.sum())
+        report["outside_2021_count"] = int(outside_year.sum())
+        report["year_filter_applied"] = True
 
-            remaining = sample_limit - rows_read
-            if remaining <= 0:
-                break
-
-            if len(chunk) > remaining:
-                chunk = chunk.iloc[:remaining].copy()
-
-            parts.append(chunk)
-            rows_read += len(chunk)
-
-            if rows_read >= sample_limit:
-                break
-
-    if not parts:
-        raise ValueError("The CSV file contains no data rows.")
-
-    raw = pd.concat(parts, ignore_index=True)
-    original_rows_loaded = len(raw)
-
-    normalized = standardize_columns(raw)
-
-    invalid_los = (
-        normalized["Length_of_Stay"].isna()
-        | (normalized["Length_of_Stay"] <= 0)
-    )
-    invalid_los_count = int(invalid_los.sum())
-
-    cleaned = normalized.loc[~invalid_los].copy()
-
-    possible_duplicate_count = int(
-        cleaned.duplicated().sum()
-    )
-
-    valid_date_count = int(
-        cleaned["Discharge_Date"].notna().sum()
-    )
-
-    outside_2021_count = 0
-    if valid_date_count > 0:
-        outside_2021_count = int(
-            (
-                cleaned["Discharge_Date"].notna()
-                & (cleaned["Discharge_Date"].dt.year != 2021)
-            ).sum()
+        keep_year = parsed_dates.notna() & (parsed_dates.dt.year == 2021)
+        df = df.loc[keep_year].copy()
+        report["year_validation"] = (
+            "Discharge Date was detected. Missing or unparseable dates and dates outside "
+            "2021 were excluded from the analysis."
         )
 
-    missing_charge_count = int(
-        cleaned["Total_Charges"].isna().sum()
-    )
-
-    valid_charges = cleaned["Total_Charges"].dropna()
-    charge_outlier_count = 0
-
-    if len(valid_charges) >= 4:
-        q1 = valid_charges.quantile(0.25)
-        q3 = valid_charges.quantile(0.75)
-        iqr = q3 - q1
-        lower_bound = q1 - 1.5 * iqr
-        upper_bound = q3 + 1.5 * iqr
-
-        charge_outlier_count = int(
-            (
-                (cleaned["Total_Charges"] < lower_bound)
-                | (cleaned["Total_Charges"] > upper_bound)
-            ).sum()
+    else:
+        report["year_validation"] = (
+            "No exact Discharge Year or Discharge Date column was found. "
+            "The file name indicates 2021, but the year could not be independently "
+            "validated from a date field."
         )
 
-    los_outlier_count = 0
-    if len(cleaned) >= 4:
-        q1_los = cleaned["Length_of_Stay"].quantile(0.25)
-        q3_los = cleaned["Length_of_Stay"].quantile(0.75)
-        iqr_los = q3_los - q1_los
-        los_lower = q1_los - 1.5 * iqr_los
-        los_upper = q3_los + 1.5 * iqr_los
+    df = apply_standard_categories(df)
+    df = df.reset_index(drop=True)
 
-        los_outlier_count = int(
-            (
-                (cleaned["Length_of_Stay"] < los_lower)
-                | (cleaned["Length_of_Stay"] > los_upper)
-            ).sum()
+    if df.empty:
+        raise ValueError(
+            "No valid rows remain after preprocessing. Check the source columns and values."
         )
 
-    metadata = {
-        "rows_loaded": original_rows_loaded,
-        "rows_after_cleaning": len(cleaned),
-        "invalid_stays_removed": invalid_los_count,
-        "potential_duplicates": possible_duplicate_count,
-        "missing_charges": missing_charge_count,
-        "charge_outliers": charge_outlier_count,
-        "los_outliers": los_outlier_count,
-        "valid_dates": valid_date_count,
-        "dates_outside_2021": outside_2021_count,
-        "columns_found": len(columns or [])
-    }
+    report["clean_rows"] = int(len(df))
+    report["rows_removed_total"] = int(report["raw_rows"] - report["clean_rows"])
 
-    return cleaned, metadata
+    return df, report
 
 
-def metric_card(label, value, note=""):
-    st.markdown(
-        f"""
-        <div class="metric-card">
-            <div class="metric-label">{label}</div>
-            <div class="metric-value">{value}</div>
-            <div class="metric-label">{note}</div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-
-def style_chart(fig, height=420):
+def make_plot(fig, height=420):
     fig.update_layout(
+        template=PLOT_TEMPLATE,
+        paper_bgcolor=PLOT_PAPER,
+        plot_bgcolor=PLOT_BG,
+        font=dict(color="#DFE8FF", family="Inter, sans-serif"),
+        margin=dict(l=15, r=15, t=55, b=15),
         height=height,
-        template="plotly_dark",
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(9,16,31,0.55)",
-        font=dict(
-            family="Inter, sans-serif",
-            color="#dce9ff"
+        hoverlabel=dict(
+            bgcolor="#111A2E",
+            font_color="#FFFFFF",
         ),
-        margin=dict(l=15, r=15, t=55, b=20),
-        legend_title_text=""
     )
     return fig
 
 
-def minimum_group_summary(
-    data,
-    group_column,
-    min_discharges,
-    value_column="Length_of_Stay"
-):
-    result = (
-        data.groupby(group_column, dropna=False)
-        .agg(
-            Discharges=(value_column, "size"),
-            Average_Stay=(value_column, "mean"),
-            Median_Stay=(value_column, "median")
+def metric_card(label, value, accent=False):
+    accent_class = " metric-accent" if accent else ""
+    st.markdown(
+        f"""
+        <div class="metric-card">
+            <div class="metric-label">{label}</div>
+            <div class="metric-value{accent_class}">{value}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def format_money(value):
+    if pd.isna(value):
+        return "N/A"
+    return f"${value:,.2f}"
+
+
+def get_filtered_data(df):
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Dashboard Filters")
+
+    county_values = sorted(df["County"].dropna().unique().tolist())
+    severity_values = sorted(df["Severity_Level"].dropna().unique().tolist())
+    payer_values = sorted(df["Payment_Type"].dropna().unique().tolist())
+    gender_values = sorted(df["Gender"].dropna().unique().tolist())
+    age_values = sorted(df["Age_Group"].dropna().unique().tolist())
+
+    selected_counties = st.sidebar.multiselect(
+        "Hospital County",
+        county_values,
+        default=county_values,
+    )
+    selected_severity = st.sidebar.multiselect(
+        "Severity Level",
+        severity_values,
+        default=severity_values,
+    )
+    selected_payers = st.sidebar.multiselect(
+        "Payment Type",
+        payer_values,
+        default=payer_values,
+    )
+    selected_gender = st.sidebar.multiselect(
+        "Gender",
+        gender_values,
+        default=gender_values,
+    )
+    selected_age = st.sidebar.multiselect(
+        "Age Group",
+        age_values,
+        default=age_values,
+    )
+
+    filtered = df[
+        df["County"].isin(selected_counties)
+        & df["Severity_Level"].isin(selected_severity)
+        & df["Payment_Type"].isin(selected_payers)
+        & df["Gender"].isin(selected_gender)
+        & df["Age_Group"].isin(selected_age)
+    ].copy()
+
+    return filtered
+
+
+def show_quality_report(df_raw, df_filtered, report):
+    st.subheader("Data Quality and Preprocessing")
+
+    c1, c2, c3, c4 = st.columns(4)
+
+    with c1:
+        metric_card("Rows Read", f"{report['rows_read']:,}")
+    with c2:
+        metric_card("Cleaned Rows", f"{len(df_raw):,}", True)
+    with c3:
+        metric_card("Invalid LOS Removed", f"{report['invalid_los_removed']:,}")
+    with c4:
+        metric_card("Exact Duplicate Rows", f"{report['duplicate_rows']:,}")
+
+    st.markdown("#### Year validation")
+    st.info(report["year_validation"])
+
+    year_col1, year_col2 = st.columns(2)
+    with year_col1:
+        st.metric("Rows with missing or invalid year/date", f"{report['missing_year_count']:,}")
+    with year_col2:
+        st.metric("Rows outside 2021", f"{report['outside_2021_count']:,}")
+
+    if not report["year_filter_applied"]:
+        st.warning(
+            "Year filtering was not applied because the source did not contain a recognized "
+            "year or date field. Confirm the dataset's reporting period before presenting "
+            "the results as independently year-validated."
         )
-        .reset_index()
+
+    st.markdown("#### Missing values after preprocessing")
+
+    missing = (
+        df_raw.isna()
+        .sum()
+        .rename("Missing Values")
+        .to_frame()
+        .reset_index(names="Column")
+    )
+    missing = missing[missing["Missing Values"] > 0].sort_values(
+        "Missing Values", ascending=False
     )
 
-    return result[result["Discharges"] >= min_discharges]
+    if missing.empty:
+        st.success("No missing values were detected in the loaded analysis columns.")
+    else:
+        st.dataframe(missing, use_container_width=True, hide_index=True)
+
+    st.markdown("#### Charge outliers")
+
+    raw_outliers = iqr_outlier_count(df_raw["Total_Charges"])
+    filtered_outliers = iqr_outlier_count(df_filtered["Total_Charges"])
+
+    outlier_col1, outlier_col2 = st.columns(2)
+    with outlier_col1:
+        st.metric("Loaded cleaned data", f"{raw_outliers:,}")
+    with outlier_col2:
+        st.metric("Currently filtered data", f"{filtered_outliers:,}")
+
+    st.caption(
+        "Outliers are identified with the 1.5 × IQR rule. They are counted for reporting "
+        "and are not automatically deleted from the dataset."
+    )
+
+    st.markdown("#### Source-to-dashboard column mapping")
+
+    mapping_rows = [
+        {"Dashboard field": target, "Matched source field": source}
+        for source, target in report["matched_columns"].items()
+    ]
+    mapping_table = pd.DataFrame(mapping_rows)
+
+    if mapping_table.empty:
+        st.warning("No source columns were mapped.")
+    else:
+        st.dataframe(mapping_table, use_container_width=True, hide_index=True)
+
+    with st.expander("View source column headers"):
+        st.write(report["available_source_columns"])
 
 
-st.markdown("""
-<div class="hero">
-    <div class="hero-title">MediScope Health Analytics</div>
-    <div class="hero-subtitle">
-        SPARCS 2021 Hospital Inpatient Discharges · Interactive
-        healthcare utilization, length-of-stay and charge analysis
+def run_ai_experiment(df):
+    st.subheader("AI Experiment: Longer-than-Typical Stay Classification")
+
+    st.write(
+        "This exploratory model predicts whether a discharge record's length of stay is "
+        "above the median length of stay calculated from the training split. The threshold "
+        "is calculated using training records only, then applied unchanged to the test set. "
+        "This is a demonstration of classification, not a clinical prediction tool."
+    )
+
+    candidate_features = [
+        "Age_Group",
+        "Gender",
+        "Race",
+        "County",
+        "Severity_Level",
+        "Payment_Type",
+        "Diagnosis_Category",
+    ]
+    features = [
+        column
+        for column in candidate_features
+        if column in df.columns and df[column].nunique(dropna=True) > 1
+    ]
+
+    if len(df) < 50:
+        st.warning("At least 50 valid filtered records are recommended for this experiment.")
+        return
+
+    if len(features) < 2:
+        st.warning(
+            "There are not enough usable categorical predictors in the filtered data "
+            "to run the experiment."
+        )
+        return
+
+    model_data = df[features + ["Length_of_Stay"]].copy()
+    model_data = model_data.dropna(subset=["Length_of_Stay"])
+
+    if len(model_data) < 50:
+        st.warning("There are not enough usable records after removing missing target values.")
+        return
+
+    X = model_data[features].astype("string").fillna("Unknown")
+    stay_values = model_data["Length_of_Stay"].astype(float)
+
+    indices = np.arange(len(model_data))
+    train_indices, test_indices = train_test_split(
+        indices,
+        test_size=0.25,
+        random_state=42,
+    )
+
+    train_stay = stay_values.iloc[train_indices]
+    test_stay = stay_values.iloc[test_indices]
+    threshold = float(train_stay.median())
+
+    y_train = (train_stay > threshold).astype(int)
+    y_test = (test_stay > threshold).astype(int)
+
+    if y_train.nunique() < 2 or y_test.nunique() < 2:
+        st.warning(
+            "The train/test split contains only one target class. Try a larger or less "
+            "restricted dataset to evaluate the model."
+        )
+        return
+
+    X_train = X.iloc[train_indices].copy()
+    X_test = X.iloc[test_indices].copy()
+
+    categorical_pipeline = Pipeline(
+        steps=[
+            ("imputer", SimpleImputer(strategy="most_frequent")),
+            ("encoder", OneHotEncoder(handle_unknown="ignore")),
+        ]
+    )
+
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ("categorical", categorical_pipeline, features),
+        ],
+        remainder="drop",
+    )
+
+    model = Pipeline(
+        steps=[
+            ("preprocessor", preprocessor),
+            (
+                "classifier",
+                RandomForestClassifier(
+                    n_estimators=160,
+                    max_depth=12,
+                    min_samples_leaf=3,
+                    class_weight="balanced",
+                    random_state=42,
+                    n_jobs=-1,
+                ),
+            ),
+        ]
+    )
+
+    baseline = DummyClassifier(strategy="most_frequent")
+
+    try:
+        model.fit(X_train, y_train)
+        baseline.fit(X_train, y_train)
+        predictions = model.predict(X_test)
+        baseline_predictions = baseline.predict(X_test)
+    except Exception as error:
+        st.error(f"The AI experiment could not be completed: {error}")
+        return
+
+    model_accuracy = accuracy_score(y_test, predictions)
+    baseline_accuracy = accuracy_score(y_test, baseline_predictions)
+
+    model_col1, model_col2, model_col3, model_col4 = st.columns(4)
+
+    with model_col1:
+        metric_card("Training Records", f"{len(train_indices):,}")
+    with model_col2:
+        metric_card("Test Records", f"{len(test_indices):,}")
+    with model_col3:
+        metric_card("Training Median LOS", f"{threshold:.1f} days", True)
+    with model_col4:
+        metric_card("Model Accuracy", f"{model_accuracy:.1%}", True)
+
+    metrics = pd.DataFrame(
+        [
+            {
+                "Model": "Random Forest",
+                "Accuracy": model_accuracy,
+                "Precision": precision_score(
+                    y_test, predictions, zero_division=0
+                ),
+                "Recall": recall_score(
+                    y_test, predictions, zero_division=0
+                ),
+                "F1 Score": f1_score(
+                    y_test, predictions, zero_division=0
+                ),
+            },
+            {
+                "Model": "Majority-Class Baseline",
+                "Accuracy": baseline_accuracy,
+                "Precision": precision_score(
+                    y_test, baseline_predictions, zero_division=0
+                ),
+                "Recall": recall_score(
+                    y_test, baseline_predictions, zero_division=0
+                ),
+                "F1 Score": f1_score(
+                    y_test, baseline_predictions, zero_division=0
+                ),
+            },
+        ]
+    )
+
+    st.markdown("#### Model compared with a baseline")
+    st.dataframe(
+        metrics.style.format(
+            {
+                "Accuracy": "{:.1%}",
+                "Precision": "{:.1%}",
+                "Recall": "{:.1%}",
+                "F1 Score": "{:.1%}",
+            }
+        ),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.caption(
+        "The majority-class baseline always predicts the most frequent class in the training "
+        "data. Compare the Random Forest results with this baseline rather than judging "
+        "accuracy alone."
+    )
+
+    class_counts = pd.DataFrame(
+        {
+            "Class": ["Typical stay", "Longer-than-typical stay"],
+            "Training records": [
+                int((y_train == 0).sum()),
+                int((y_train == 1).sum()),
+            ],
+            "Test records": [
+                int((y_test == 0).sum()),
+                int((y_test == 1).sum()),
+            ],
+        }
+    )
+
+    st.markdown("#### Target class distribution")
+    st.dataframe(class_counts, use_container_width=True, hide_index=True)
+
+    cm = confusion_matrix(y_test, predictions, labels=[0, 1])
+    cm_fig = px.imshow(
+        cm,
+        x=["Predicted typical", "Predicted longer"],
+        y=["Actual typical", "Actual longer"],
+        text_auto=True,
+        color_continuous_scale="Teal",
+        labels={"x": "Predicted class", "y": "Actual class", "color": "Records"},
+    )
+    cm_fig.update_layout(title="Random Forest Confusion Matrix")
+    st.plotly_chart(make_plot(cm_fig, 380), use_container_width=True)
+
+    st.markdown("#### Classification report")
+    report_text = classification_report(
+        y_test,
+        predictions,
+        labels=[0, 1],
+        target_names=["Typical stay", "Longer-than-typical stay"],
+        zero_division=0,
+    )
+    st.code(report_text, language="text")
+
+    st.caption(
+        "The model uses age group, gender, race, county, severity, payment type, and diagnosis "
+        "category where available. Length of stay is used only to construct the target and is "
+        "not supplied as a predictor. No causal or clinical conclusions should be drawn."
+    )
+
+
+st.markdown(
+    """
+    <div class="hero">
+        <div class="hero-title">MediScope <span>Health Analytics</span></div>
+        <div class="hero-subtitle">
+            SPARCS hospital inpatient discharges · Exploratory analysis · Interactive reporting
+        </div>
     </div>
-</div>
-""", unsafe_allow_html=True)
+    """,
+    unsafe_allow_html=True,
+)
 
-if not os.path.exists(TARGET_FILE):
+st.write("")
+
+st.sidebar.markdown("## MediScope")
+st.sidebar.caption("SPARCS 2021 Inpatient Discharges")
+st.sidebar.markdown("---")
+
+if not os.path.isfile(TARGET_FILE):
     st.error(
-        f"Dataset not found. Place `{TARGET_FILE}` in the same "
-        "folder as app.py."
+        "The required dataset was not found. Place this CSV in the same folder as app.py:"
     )
+    st.code(os.path.basename(TARGET_FILE), language="text")
     st.stop()
 
-st.sidebar.header("Dashboard Controls")
+st.sidebar.subheader("Data Settings")
 
-sample_limit = st.sidebar.selectbox(
-    "Records to analyze",
-    options=[10000, 25000, 50000, 100000],
-    index=2,
-    format_func=lambda x: f"{x:,} records"
+analysis_mode = st.sidebar.radio(
+    "Dataset coverage",
+    options=["Sample", "Full Dataset"],
+    index=0,
+    help=(
+        "Sample mode reads the first selected number of rows. Full Dataset reads all CSV "
+        "chunks and combines them in memory; it can require several gigabytes of RAM."
+    ),
 )
 
-st.sidebar.caption(
-    "The dashboard reads the CSV in chunks and analyzes the first "
-    "selected number of rows. Choose a larger sample to broaden "
-    "the analysis."
+sample_size = st.sidebar.select_slider(
+    "Rows to read in sample mode",
+    options=[10_000, 25_000, 50_000, 100_000],
+    value=50_000,
+    format_func=lambda value: f"{value:,}",
+    disabled=analysis_mode == "Full Dataset",
 )
 
-if st.sidebar.button("Clear cached data"):
-    st.cache_data.clear()
-    st.rerun()
+if analysis_mode == "Full Dataset":
+    st.sidebar.warning(
+        "Full Dataset mode may use several gigabytes of memory. If the app stops or runs "
+        "out of memory, return to Sample mode."
+    )
 
 try:
-    with st.spinner("Reading dataset in chunks and cleaning records..."):
-        df_raw, quality = load_sparcs_data(
+    with st.spinner("Preparing the dataset..."):
+        df_raw, data_report = load_sparcs_data(
             TARGET_FILE,
-            sample_limit
+            analysis_mode,
+            int(sample_size),
         )
 except Exception as error:
-    st.error(f"Could not load the dataset: {error}")
+    st.error(f"Could not load or preprocess the dataset: {error}")
     st.stop()
 
-if df_raw.empty:
-    st.error(
-        "No records remain after cleaning. Check the dataset's "
-        "length-of-stay column and its values."
+st.sidebar.success(f"{len(df_raw):,} valid records ready")
+
+if analysis_mode == "Sample":
+    st.sidebar.caption(
+        "Sample mode reads the first selected rows from the CSV. It is not a random sample "
+        "and may not represent the entire dataset."
     )
+else:
+    st.sidebar.caption("All rows were read before preprocessing.")
+
+df_filtered = get_filtered_data(df_raw)
+
+if df_filtered.empty:
+    st.warning("No records match the current filters. Change the sidebar selections.")
     st.stop()
 
-st.sidebar.success(
-    f"Analyzed {len(df_raw):,} cleaned records"
-)
-
-st.sidebar.subheader("Filters")
-
-county_options = sorted(df_raw["County"].unique().tolist())
-severity_options = sorted(df_raw["Severity_Level"].unique().tolist())
-payment_options = sorted(df_raw["Payment_Type"].unique().tolist())
-age_options = sorted(df_raw["Age_Group"].unique().tolist())
-gender_options = sorted(df_raw["Gender"].unique().tolist())
-race_options = sorted(df_raw["Race"].unique().tolist())
-
-selected_counties = st.sidebar.multiselect(
-    "County",
-    county_options,
-    default=county_options
-)
-
-selected_severity = st.sidebar.multiselect(
-    "Severity",
-    severity_options,
-    default=severity_options
-)
-
-selected_payment = st.sidebar.multiselect(
-    "Payment type",
-    payment_options,
-    default=payment_options
-)
-
-selected_age = st.sidebar.multiselect(
-    "Age group",
-    age_options,
-    default=age_options
-)
-
-selected_gender = st.sidebar.multiselect(
-    "Gender",
-    gender_options,
-    default=gender_options
-)
-
-selected_race = st.sidebar.multiselect(
-    "Race",
-    race_options,
-    default=race_options
-)
-
-minimum_discharges = st.sidebar.number_input(
-    "Minimum discharges per ranking group",
-    min_value=1,
-    max_value=1000,
-    value=10,
-    step=1
-)
-
-hide_charge_outliers = st.sidebar.checkbox(
-    "Hide extreme charge values in box plot",
-    value=False
-)
-
-df = df_raw[
-    df_raw["County"].isin(selected_counties)
-    & df_raw["Severity_Level"].isin(selected_severity)
-    & df_raw["Payment_Type"].isin(selected_payment)
-    & df_raw["Age_Group"].isin(selected_age)
-    & df_raw["Gender"].isin(selected_gender)
-    & df_raw["Race"].isin(selected_race)
-].copy()
-
-if df.empty:
-    st.warning(
-        "No records match the current filters. Change or clear "
-        "some filters in the sidebar."
-    )
-    st.stop()
-
-valid_charges = df["Total_Charges"].dropna()
-valid_charge_count = len(valid_charges)
-charge_total = valid_charges.sum() if valid_charge_count else np.nan
-charge_average = valid_charges.mean() if valid_charge_count else np.nan
+st.markdown("")
 
 k1, k2, k3, k4 = st.columns(4)
 
 with k1:
-    metric_card("Discharges analyzed", f"{len(df):,}")
-
+    metric_card("Filtered Discharges", f"{len(df_filtered):,}", True)
 with k2:
+    avg_los = df_filtered["Length_of_Stay"].mean()
     metric_card(
-        "Average length of stay",
-        f"{df['Length_of_Stay'].mean():.2f} days"
+        "Average Length of Stay",
+        f"{avg_los:.1f} days" if pd.notna(avg_los) else "N/A",
     )
-
 with k3:
-    metric_card(
-        "Total recorded charges",
-        f"${charge_total:,.0f}" if valid_charge_count else "N/A",
-        f"{valid_charge_count:,} records with valid charges"
-    )
-
+    total_charges = df_filtered["Total_Charges"].sum(min_count=1)
+    metric_card("Total Hospital Charges", format_money(total_charges))
 with k4:
-    metric_card(
-        "Average charge per stay",
-        f"${charge_average:,.2f}" if valid_charge_count else "N/A",
-        f"Based on {valid_charge_count:,} valid charge records"
-    )
+    average_charge = df_filtered["Total_Charges"].mean()
+    metric_card("Average Charge per Stay", format_money(average_charge))
 
-st.caption(
-    "These figures describe the analyzed records after cleaning "
-    "and filtering; they are not automatically statewide totals."
+st.markdown("---")
+
+overview_tab, diagnosis_tab, demographics_tab, facilities_tab, quality_tab, ai_tab, explorer_tab = st.tabs(
+    [
+        "Overview",
+        "Diagnosis & Stay",
+        "Charges & Demographics",
+        "Facilities & Counties",
+        "Data Quality",
+        "AI Experiment",
+        "Data Explorer",
+    ]
 )
 
-tab_overview, tab_diagnosis, tab_finance, tab_facilities, tab_quality, tab_ai, tab_data = st.tabs([
-    "Overview",
-    "Diagnosis & Stay",
-    "Charges & Demographics",
-    "Facilities & Counties",
-    "Data Quality",
-    "AI Experiment",
-    "Data Explorer"
-])
-
-with tab_overview:
-    st.subheader("Hospital discharge overview")
+with overview_tab:
+    st.markdown('<div class="section-title">Discharge Overview</div>', unsafe_allow_html=True)
 
     left, right = st.columns(2)
 
     with left:
-        payment_counts = (
-            df["Payment_Type"]
+        st.subheader("Patient volume by payment type")
+        payer_summary = (
+            df_filtered["Payment_Type"]
             .value_counts()
+            .head(10)
             .rename_axis("Payment Type")
             .reset_index(name="Discharges")
         )
 
-        fig = px.pie(
-            payment_counts,
+        payer_fig = px.pie(
+            payer_summary,
             names="Payment Type",
             values="Discharges",
-            hole=0.48,
-            title="Discharges by payment type"
+            hole=0.55,
+            color_discrete_sequence=NEON_PALETTE,
         )
-        st.plotly_chart(
-            style_chart(fig),
-            use_container_width=True
+        payer_fig.update_traces(
+            textposition="inside",
+            textinfo="percent+label",
         )
+        st.plotly_chart(make_plot(payer_fig, 430), use_container_width=True)
 
     with right:
-        fig = px.histogram(
-            df,
-            x="Length_of_Stay",
-            nbins=35,
-            title="Distribution of length of stay",
-            labels={"Length_of_Stay": "Length of stay (days)"}
+        st.subheader("Length-of-stay distribution")
+        max_days = st.slider(
+            "Maximum stay displayed (days)",
+            min_value=5,
+            max_value=90,
+            value=30,
+            step=5,
+            key="overview_max_los",
         )
-        fig.update_traces(
-            marker_line_width=0.4,
-            marker_line_color="#a8eaff"
-        )
-        st.plotly_chart(
-            style_chart(fig),
-            use_container_width=True
-        )
+        hist_data = df_filtered[
+            df_filtered["Length_of_Stay"] <= max_days
+        ]
 
-    age_summary = (
-        df.groupby("Age_Group", dropna=False)
-        .agg(
-            Discharges=("Length_of_Stay", "size"),
-            Average_Stay=("Length_of_Stay", "mean")
-        )
-        .reset_index()
-        .sort_values("Discharges", ascending=False)
+        if hist_data.empty:
+            st.info("No stays fall within the selected range.")
+        else:
+            hist_fig = px.histogram(
+                hist_data,
+                x="Length_of_Stay",
+                nbins=min(max_days, 40),
+                color_discrete_sequence=["#00F5D4"],
+                labels={
+                    "Length_of_Stay": "Length of Stay (Days)",
+                    "count": "Discharges",
+                },
+            )
+            hist_fig.update_layout(bargap=0.08)
+            st.plotly_chart(make_plot(hist_fig, 430), use_container_width=True)
+
+    st.subheader("Quick insights")
+
+    longest_diagnosis = (
+        df_filtered.groupby("Diagnosis_Category")["Length_of_Stay"]
+        .mean()
+        .sort_values(ascending=False)
+    )
+    highest_volume_county = df_filtered["County"].value_counts()
+    highest_payment = df_filtered["Payment_Type"].value_counts()
+
+    insight_cols = st.columns(3)
+
+    with insight_cols[0]:
+        if not longest_diagnosis.empty:
+            st.markdown("**Highest average stay**")
+            st.write(longest_diagnosis.index[0])
+            st.caption(f"{longest_diagnosis.iloc[0]:.1f} days on average")
+
+    with insight_cols[1]:
+        if not highest_volume_county.empty:
+            st.markdown("**Highest discharge volume by county**")
+            st.write(highest_volume_county.index[0])
+            st.caption(f"{highest_volume_county.iloc[0]:,} discharges in the filtered data")
+
+    with insight_cols[2]:
+        if not highest_payment.empty:
+            st.markdown("**Most common payment type**")
+            st.write(highest_payment.index[0])
+            st.caption(f"{highest_payment.iloc[0]:,} discharges in the filtered data")
+
+    st.caption(
+        "These insights describe the loaded and filtered records only. In Sample mode, "
+        "they are based on the first selected rows rather than the complete CSV."
     )
 
-    fig = px.bar(
-        age_summary,
-        x="Age_Group",
-        y="Discharges",
-        color="Average_Stay",
-        title="Discharges and average stay by age group",
-        labels={
-            "Age_Group": "Age group",
-            "Discharges": "Discharges",
-            "Average_Stay": "Average stay (days)"
-        },
-        color_continuous_scale="Tealgrn"
+with diagnosis_tab:
+    st.markdown('<div class="section-title">Diagnosis and Length of Stay</div>', unsafe_allow_html=True)
+
+    top_n = st.slider(
+        "Number of diagnosis categories to display",
+        min_value=5,
+        max_value=25,
+        value=10,
+        key="diagnosis_top_n",
     )
-    st.plotly_chart(
-        style_chart(fig),
-        use_container_width=True
-    )
-
-    st.subheader("Research questions")
-
-    research_questions = [
-        "Which diagnosis categories have the longest average stays?",
-        "How does severity of illness relate to length of stay?",
-        "How do recorded hospital charges vary by severity?",
-        "How do average charges differ by age group and gender?",
-        "Which facilities have the largest discharge volumes?",
-        "How do payment types differ across counties?",
-        "How do demographic groups vary in discharge volume and length of stay?"
-    ]
-
-    for question in research_questions:
-        st.markdown(f"- {question}")
-
-with tab_diagnosis:
-    st.subheader("Length of stay by diagnosis and severity")
 
     diagnosis_summary = (
-        df.groupby("Diagnosis_Category")
+        df_filtered.groupby("Diagnosis_Category", dropna=False)
         .agg(
             Discharges=("Length_of_Stay", "size"),
             Average_Stay=("Length_of_Stay", "mean"),
-            Median_Stay=("Length_of_Stay", "median")
+            Median_Stay=("Length_of_Stay", "median"),
         )
         .reset_index()
+        .sort_values("Average_Stay", ascending=False)
+        .head(top_n)
+        .sort_values("Average_Stay")
     )
 
-    diagnosis_summary = diagnosis_summary[
-        diagnosis_summary["Discharges"] >= minimum_discharges
-    ]
+    diag_fig = px.bar(
+        diagnosis_summary,
+        x="Average_Stay",
+        y="Diagnosis_Category",
+        orientation="h",
+        color="Average_Stay",
+        color_continuous_scale=["#27345B", "#7B61FF", "#00F5D4"],
+        hover_data=["Discharges", "Median_Stay"],
+        labels={
+            "Average_Stay": "Average Stay (Days)",
+            "Diagnosis_Category": "Diagnosis Category",
+            "Discharges": "Discharges",
+            "Median_Stay": "Median Stay (Days)",
+        },
+        text_auto=".1f",
+    )
+    diag_fig.update_layout(coloraxis_showscale=False)
+    st.plotly_chart(make_plot(diag_fig, 520), use_container_width=True)
 
-    if not diagnosis_summary.empty:
-        diagnosis_summary = diagnosis_summary.nlargest(
-            15, "Average_Stay"
-        ).sort_values("Average_Stay")
+    st.subheader("Diagnosis summary table")
+    st.dataframe(
+        diagnosis_summary.round(2),
+        use_container_width=True,
+        hide_index=True,
+    )
 
-        fig = px.bar(
-            diagnosis_summary,
-            x="Average_Stay",
-            y="Diagnosis_Category",
-            orientation="h",
-            color="Discharges",
-            title=(
-                "Diagnosis categories with highest average stay "
-                f"(minimum {minimum_discharges} discharges)"
-            ),
-            labels={
-                "Average_Stay": "Average stay (days)",
-                "Diagnosis_Category": "Diagnosis category",
-                "Discharges": "Discharges"
-            },
-            hover_data=["Median_Stay"]
-        )
-        st.plotly_chart(
-            style_chart(fig, 520),
-            use_container_width=True
-        )
-    else:
-        st.info(
-            "No diagnosis group meets the current minimum-discharge "
-            "threshold. Reduce the threshold in the sidebar."
-        )
-
-    severity_summary = (
-        df.groupby("Severity_Level")
+    severity_stay = (
+        df_filtered.groupby("Severity_Level")
         .agg(
             Discharges=("Length_of_Stay", "size"),
             Average_Stay=("Length_of_Stay", "mean"),
-            Median_Stay=("Length_of_Stay", "median")
+            Median_Stay=("Length_of_Stay", "median"),
         )
         .reset_index()
         .sort_values("Average_Stay", ascending=False)
     )
 
-    fig = px.bar(
-        severity_summary,
+    st.subheader("Length of stay by severity")
+    severity_fig = px.bar(
+        severity_stay,
         x="Severity_Level",
         y="Average_Stay",
         color="Severity_Level",
-        title="Average stay by severity of illness",
+        color_discrete_sequence=NEON_PALETTE,
+        hover_data=["Discharges", "Median_Stay"],
         labels={
-            "Severity_Level": "Severity",
-            "Average_Stay": "Average stay (days)"
+            "Severity_Level": "Severity Level",
+            "Average_Stay": "Average Stay (Days)",
         },
-        hover_data=["Discharges", "Median_Stay"]
     )
-    st.plotly_chart(
-        style_chart(fig),
-        use_container_width=True
-    )
+    st.plotly_chart(make_plot(severity_fig, 390), use_container_width=True)
 
-    severity_table = severity_summary.rename(columns={
-        "Severity_Level": "Severity",
-        "Average_Stay": "Average stay (days)",
-        "Median_Stay": "Median stay (days)"
-    })
-    st.dataframe(
-        severity_table,
-        use_container_width=True,
-        hide_index=True
+with demographics_tab:
+    st.markdown('<div class="section-title">Charges and Demographics</div>', unsafe_allow_html=True)
+
+    hide_charge_outliers = st.checkbox(
+        "Hide extreme charge values in charge charts",
+        value=True,
+        help=(
+            "This affects the charge box plot and average-charge-by-demographic chart. "
+            "It does not delete rows from the dataset or change other dashboard metrics."
+        ),
     )
 
-with tab_finance:
-    st.subheader("Charges and demographic comparisons")
+    charge_data = df_filtered.dropna(subset=["Total_Charges"]).copy()
 
-    charge_data = df.dropna(subset=["Total_Charges"]).copy()
-
-    if hide_charge_outliers and len(charge_data) >= 4:
+    if hide_charge_outliers and not charge_data.empty:
         q1 = charge_data["Total_Charges"].quantile(0.25)
         q3 = charge_data["Total_Charges"].quantile(0.75)
         iqr = q3 - q1
-        low = q1 - 1.5 * iqr
-        high = q3 + 1.5 * iqr
-        charge_data = charge_data[
-            charge_data["Total_Charges"].between(low, high)
-        ]
+        lower_limit = max(0, q1 - 1.5 * iqr)
+        upper_limit = q3 + 1.5 * iqr
+        charge_chart_data = charge_data[
+            charge_data["Total_Charges"].between(lower_limit, upper_limit)
+        ].copy()
+    else:
+        charge_chart_data = charge_data.copy()
 
-    st.caption(
-        "Missing charges are excluded from charge charts and averages. "
-        "Outlier filtering changes only the box plot display."
-    )
+    if not charge_data.empty and not charge_chart_data.empty:
+        st.caption(
+            f"{len(charge_chart_data):,} of {len(charge_data):,} records with valid charges "
+            "are displayed in the charge charts."
+        )
 
-    fig = px.box(
-        charge_data,
-        x="Severity_Level",
-        y="Total_Charges",
-        color="Severity_Level",
-        points="outliers" if not hide_charge_outliers else False,
-        title="Recorded charges by severity",
-        labels={
-            "Severity_Level": "Severity",
-            "Total_Charges": "Total charges ($)"
-        }
-    )
-    st.plotly_chart(
-        style_chart(fig),
-        use_container_width=True
-    )
+    left, right = st.columns(2)
 
-    charge_col1, charge_col2 = st.columns(2)
+    with left:
+        st.subheader("Hospital charges by severity")
+        if charge_chart_data.empty:
+            st.info("No valid charge values are available for the selected filters.")
+        else:
+            box_fig = px.box(
+                charge_chart_data,
+                x="Severity_Level",
+                y="Total_Charges",
+                color="Severity_Level",
+                color_discrete_sequence=NEON_PALETTE,
+                points="outliers" if not hide_charge_outliers else False,
+                labels={
+                    "Severity_Level": "Severity Level",
+                    "Total_Charges": "Total Charges ($)",
+                },
+            )
+            st.plotly_chart(make_plot(box_fig, 440), use_container_width=True)
 
-    with charge_col1:
+    with right:
+        st.subheader("Average charge by age group")
         age_charge = (
-            charge_data.groupby("Age_Group")
+            charge_chart_data.groupby("Age_Group")
             .agg(
-                Valid_Charge_Records=("Total_Charges", "count"),
-                Average_Charge=("Total_Charges", "mean")
+                Average_Charges=("Total_Charges", "mean"),
+                Discharges=("Total_Charges", "size"),
             )
             .reset_index()
-            .sort_values("Average_Charge", ascending=False)
+            .sort_values("Average_Charges", ascending=False)
         )
 
-        fig = px.bar(
-            age_charge,
-            x="Age_Group",
-            y="Average_Charge",
-            title="Average charges by age group",
-            labels={
-                "Age_Group": "Age group",
-                "Average_Charge": "Average charge ($)"
-            },
-            hover_data=["Valid_Charge_Records"]
-        )
-        st.plotly_chart(
-            style_chart(fig),
-            use_container_width=True
-        )
-
-    with charge_col2:
-        gender_charge = (
-            charge_data.groupby("Gender")
-            .agg(
-                Valid_Charge_Records=("Total_Charges", "count"),
-                Average_Charge=("Total_Charges", "mean")
+        if age_charge.empty:
+            st.info("No valid charges are available for the selected filters.")
+        else:
+            age_fig = px.bar(
+                age_charge,
+                x="Age_Group",
+                y="Average_Charges",
+                color="Average_Charges",
+                color_continuous_scale=["#27345B", "#7B61FF", "#00F5D4"],
+                hover_data=["Discharges"],
+                labels={
+                    "Age_Group": "Age Group",
+                    "Average_Charges": "Average Charges ($)",
+                },
             )
-            .reset_index()
-        )
+            age_fig.update_layout(coloraxis_showscale=False)
+            st.plotly_chart(make_plot(age_fig, 440), use_container_width=True)
 
-        fig = px.bar(
-            gender_charge,
-            x="Gender",
-            y="Average_Charge",
-            color="Gender",
-            title="Average charges by gender",
-            labels={
-                "Gender": "Gender",
-                "Average_Charge": "Average charge ($)"
-            },
-            hover_data=["Valid_Charge_Records"]
-        )
-        st.plotly_chart(
-            style_chart(fig),
-            use_container_width=True
-        )
-
-    race_severity = (
-        df.groupby(["Race", "Severity_Level"])
-        .size()
-        .reset_index(name="Discharges")
-    )
-
-    fig = px.bar(
-        race_severity,
-        x="Race",
-        y="Discharges",
-        color="Severity_Level",
-        barmode="group",
-        title="Discharges by race and severity",
-        labels={"Race": "Race", "Discharges": "Discharges"}
-    )
-    st.plotly_chart(
-        style_chart(fig, 480),
-        use_container_width=True
-    )
-
-    st.subheader("Charge coverage")
-    st.write(f"Filtered records: **{len(df):,}**")
-    st.write(
-        f"Records with valid charges: **{df['Total_Charges'].notna().sum():,}**"
-    )
-    st.write(
-        f"Records with missing or invalid charges: "
-        f"**{df['Total_Charges'].isna().sum():,}**"
-    )
-
-with tab_facilities:
-    st.subheader("Facility utilization and county comparison")
-
-    facility_summary = (
-        df.groupby(["Facility_Name", "County"])
+    st.subheader("Discharges and average stay by gender")
+    gender_summary = (
+        df_filtered.groupby("Gender")
         .agg(
             Discharges=("Length_of_Stay", "size"),
             Average_Stay=("Length_of_Stay", "mean"),
-            Median_Stay=("Length_of_Stay", "median")
+            Average_Charges=("Total_Charges", "mean"),
+        )
+        .reset_index()
+        .sort_values("Discharges", ascending=False)
+    )
+
+    gender_col1, gender_col2 = st.columns(2)
+
+    with gender_col1:
+        gender_volume_fig = px.bar(
+            gender_summary,
+            x="Gender",
+            y="Discharges",
+            color="Gender",
+            color_discrete_sequence=NEON_PALETTE,
+        )
+        st.plotly_chart(make_plot(gender_volume_fig, 360), use_container_width=True)
+
+    with gender_col2:
+        gender_stay_fig = px.bar(
+            gender_summary,
+            x="Gender",
+            y="Average_Stay",
+            color="Gender",
+            color_discrete_sequence=NEON_PALETTE,
+            labels={"Average_Stay": "Average Stay (Days)"},
+        )
+        st.plotly_chart(make_plot(gender_stay_fig, 360), use_container_width=True)
+
+    st.dataframe(gender_summary.round(2), use_container_width=True, hide_index=True)
+
+with facilities_tab:
+    st.markdown('<div class="section-title">Facility and County Performance</div>', unsafe_allow_html=True)
+
+    facility_count = (
+        df_filtered.groupby(["Facility_Name", "County"])
+        .agg(
+            Discharges=("Length_of_Stay", "size"),
+            Average_Stay=("Length_of_Stay", "mean"),
+            Average_Charges=("Total_Charges", "mean"),
         )
         .reset_index()
     )
 
-    facility_summary = facility_summary[
-        facility_summary["Discharges"] >= minimum_discharges
-    ]
-
-    top_facilities = facility_summary.nlargest(
-        15, "Discharges"
+    top_facility_count = st.slider(
+        "Number of facilities to display",
+        min_value=5,
+        max_value=30,
+        value=10,
+        key="facility_top_n",
     )
 
-    if not top_facilities.empty:
-        fig = px.bar(
+    top_facilities = (
+        facility_count.sort_values("Discharges", ascending=False)
+        .head(top_facility_count)
+    )
+
+    st.subheader("Facilities with the highest discharge volume")
+    if top_facilities.empty:
+        st.info("No facility data is available for the current filters.")
+    else:
+        facility_fig = px.bar(
             top_facilities.sort_values("Discharges"),
             x="Discharges",
             y="Facility_Name",
-            color="County",
+            color="Average_Stay",
             orientation="h",
-            title="Highest-volume facilities",
+            color_continuous_scale=["#27345B", "#7B61FF", "#00F5D4"],
+            hover_data=["County", "Average_Charges"],
             labels={
+                "Facility_Name": "Facility",
                 "Discharges": "Discharges",
-                "Facility_Name": "Facility"
+                "Average_Stay": "Average Stay (Days)",
+                "Average_Charges": "Average Charges ($)",
             },
-            hover_data=["Average_Stay", "Median_Stay"]
         )
-        st.plotly_chart(
-            style_chart(fig, 520),
-            use_container_width=True
+        st.plotly_chart(make_plot(facility_fig, 520), use_container_width=True)
+
+    st.subheader("Average stay by facility and county heatmap")
+    facility_heatmap_rows = (
+        df_filtered.groupby(["Facility_Name", "County"])
+        .agg(
+            Average_Stay=("Length_of_Stay", "mean"),
+            Discharges=("Length_of_Stay", "size"),
         )
+        .reset_index()
+        .sort_values("Discharges", ascending=False)
+        .head(3000)
+    )
 
-        facility_options = top_facilities[
-            ["Facility_Name", "County"]
-        ].drop_duplicates()
-
-        facility_options["Display"] = (
-            facility_options["Facility_Name"]
-            + " — "
-            + facility_options["County"]
-        )
-
-        selected_facilities = st.multiselect(
-            "Facilities to include in the heatmap",
-            options=facility_options["Display"].tolist(),
-            default=facility_options["Display"].head(8).tolist(),
-            key="facility_heatmap_selection"
-        )
-
-        selected_facility_rows = facility_options[
-            facility_options["Display"].isin(selected_facilities)
-        ]
-
-        heatmap_source = df.merge(
-            selected_facility_rows[["Facility_Name", "County"]],
-            on=["Facility_Name", "County"],
-            how="inner"
-        )
-
-        if not heatmap_source.empty:
-            heatmap_data = heatmap_source.pivot_table(
-                index="Facility_Name",
-                columns="County",
-                values="Length_of_Stay",
-                aggfunc="mean"
-            )
-
-            if not heatmap_data.empty:
-                fig = px.imshow(
-                    heatmap_data,
-                    aspect="auto",
-                    color_continuous_scale="Viridis",
-                    title="Average stay by facility and county",
-                    labels={
-                        "x": "County",
-                        "y": "Facility",
-                        "color": "Average stay (days)"
-                    }
-                )
-                st.plotly_chart(
-                    style_chart(fig, 500),
-                    use_container_width=True
-                )
+    if facility_heatmap_rows.empty:
+        st.info("There is not enough facility and county data to create a heatmap.")
     else:
-        st.info(
-            "No facility meets the minimum-discharge threshold."
+        heatmap_facilities = (
+            facility_heatmap_rows.groupby("Facility_Name")["Discharges"]
+            .sum()
+            .nlargest(min(12, facility_heatmap_rows["Facility_Name"].nunique()))
+            .index
         )
 
+        heatmap_data = facility_heatmap_rows[
+            facility_heatmap_rows["Facility_Name"].isin(heatmap_facilities)
+        ].pivot(
+            index="Facility_Name",
+            columns="County",
+            values="Average_Stay",
+        )
+
+        heat_fig = px.imshow(
+            heatmap_data,
+            labels={
+                "x": "County",
+                "y": "Facility",
+                "color": "Average Stay (Days)",
+            },
+            color_continuous_scale=["#17213C", "#7B61FF", "#00F5D4"],
+            aspect="auto",
+        )
+        st.plotly_chart(make_plot(heat_fig, 500), use_container_width=True)
+
+    st.subheader("County-level summary")
     county_summary = (
-        df.groupby("County")
+        df_filtered.groupby("County")
         .agg(
             Discharges=("Length_of_Stay", "size"),
             Average_Stay=("Length_of_Stay", "mean"),
-            Median_Stay=("Length_of_Stay", "median")
+            Median_Stay=("Length_of_Stay", "median"),
+            Average_Charges=("Total_Charges", "mean"),
         )
         .reset_index()
+        .sort_values("Discharges", ascending=False)
     )
 
-    county_summary = county_summary[
-        county_summary["Discharges"] >= minimum_discharges
-    ]
+    st.dataframe(
+        county_summary.round(2),
+        use_container_width=True,
+        hide_index=True,
+    )
 
-    if not county_summary.empty:
-        county_summary = county_summary.sort_values(
-            "Average_Stay", ascending=False
-        )
+with quality_tab:
+    show_quality_report(df_raw, df_filtered, data_report)
 
-        fig = px.bar(
-            county_summary,
-            x="County",
-            y="Average_Stay",
-            color="Discharges",
-            title="Average stay by county",
-            labels={
-                "County": "County",
-                "Average_Stay": "Average stay (days)"
+with ai_tab:
+    run_ai_experiment(df_filtered)
+
+with explorer_tab:
+    st.markdown('<div class="section-title">SPARCS Data Explorer</div>', unsafe_allow_html=True)
+
+    st.caption(
+        "Previewing up to 500 filtered rows. The download button exports the filtered "
+        "records from the current analysis mode."
+    )
+
+    st.dataframe(
+        df_filtered.head(500),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    summary_download = pd.DataFrame(
+        [
+            {
+                "Metric": "Rows read",
+                "Value": data_report["rows_read"],
             },
-            hover_data=["Discharges", "Median_Stay"]
-        )
-        st.plotly_chart(
-            style_chart(fig, 480),
-            use_container_width=True
-        )
-
-    st.subheader("County and payment type")
-
-    county_payment = pd.crosstab(
-        df["County"],
-        df["Payment_Type"]
-    )
-
-    st.dataframe(
-        county_payment,
-        use_container_width=True
-    )
-
-    fig = px.bar(
-        county_payment.reset_index().melt(
-            id_vars="County",
-            var_name="Payment_Type",
-            value_name="Discharges"
-        ),
-        x="County",
-        y="Discharges",
-        color="Payment_Type",
-        barmode="stack",
-        title="Discharges by county and payment type",
-        labels={
-            "County": "County",
-            "Payment_Type": "Payment type"
-        }
-    )
-    st.plotly_chart(
-        style_chart(fig, 480),
-        use_container_width=True
-    )
-
-with tab_quality:
-    st.subheader("Data quality and preprocessing report")
-
-    q1, q2, q3 = st.columns(3)
-
-    with q1:
-        metric_card(
-            "Rows loaded",
-            f"{quality['rows_loaded']:,}"
-        )
-
-    with q2:
-        metric_card(
-            "Rows after valid-stay check",
-            f"{quality['rows_after_cleaning']:,}"
-        )
-
-    with q3:
-        metric_card(
-            "Potential duplicate rows",
-            f"{quality['potential_duplicates']:,}",
-            "Flagged for review, not automatically removed"
-        )
-
-    quality_table = pd.DataFrame({
-        "Check": [
-            "Records read",
-            "Records remaining after cleaning",
-            "Invalid or missing length of stay",
-            "Potential exact duplicate rows",
-            "Missing or invalid charges",
-            "Charge outliers detected by IQR",
-            "Length-of-stay outliers detected by IQR",
-            "Records with valid discharge dates",
-            "Valid dates outside 2021",
-            "Original columns detected"
-        ],
-        "Result": [
-            quality["rows_loaded"],
-            quality["rows_after_cleaning"],
-            quality["invalid_stays_removed"],
-            quality["potential_duplicates"],
-            quality["missing_charges"],
-            quality["charge_outliers"],
-            quality["los_outliers"],
-            quality["valid_dates"],
-            quality["dates_outside_2021"],
-            quality["columns_found"]
+            {
+                "Metric": "Valid rows after preprocessing",
+                "Value": len(df_raw),
+            },
+            {
+                "Metric": "Rows in current filters",
+                "Value": len(df_filtered),
+            },
+            {
+                "Metric": "Average length of stay",
+                "Value": df_filtered["Length_of_Stay"].mean(),
+            },
+            {
+                "Metric": "Average total charges",
+                "Value": df_filtered["Total_Charges"].mean(),
+            },
+            {
+                "Metric": "Invalid LOS rows removed",
+                "Value": data_report["invalid_los_removed"],
+            },
+            {
+                "Metric": "Duplicate rows detected",
+                "Value": data_report["duplicate_rows"],
+            },
+            {
+                "Metric": "Missing year/date rows",
+                "Value": data_report["missing_year_count"],
+            },
+            {
+                "Metric": "Rows outside 2021",
+                "Value": data_report["outside_2021_count"],
+            },
         ]
-    })
-
-    st.dataframe(
-        quality_table,
-        use_container_width=True,
-        hide_index=True
     )
 
-    st.markdown("""
-    <div class="section-card">
-    <strong>Cleaning decisions</strong>
-    <ul>
-    <li>Length of stay is converted to numeric values.</li>
-    <li>Rows with missing, invalid or non-positive length of stay are excluded.</li>
-    <li>Charges are converted to numeric values; missing charges are not imputed.</li>
-    <li>Gender and categorical fields are standardized where possible.</li>
-    <li>Potential exact duplicates are reported, not automatically deleted.</li>
-    <li>Charge and stay outliers are flagged using the IQR method.</li>
-    <li>Discharge dates are checked when the source contains a usable date column.</li>
-    </ul>
-    </div>
-    """, unsafe_allow_html=True)
+    download_col1, download_col2 = st.columns(2)
 
-    if quality["valid_dates"] == 0:
-        st.warning(
-            "No valid discharge dates were found in the analyzed sample. "
-            "The year of every record therefore could not be independently verified."
-        )
-    elif quality["dates_outside_2021"] > 0:
-        st.warning(
-            f"{quality['dates_outside_2021']:,} records with valid dates "
-            "fall outside 2021. Investigate before treating the sample as "
-            "strictly limited to the 2021 reporting period."
-        )
-    else:
-        st.success(
-            "All valid discharge dates in the analyzed sample fall in 2021."
+    with download_col1:
+        st.download_button(
+            "Download Filtered Records",
+            data=df_filtered.to_csv(index=False).encode("utf-8"),
+            file_name="SPARCS_2021_Filtered_Discharges.csv",
+            mime="text/csv",
+            use_container_width=True,
         )
 
-    st.info(
-        "This report describes the analyzed sample, not necessarily the "
-        "entire CSV. Exact duplicates can represent legitimate discharges; "
-        "confirm the source's record-identification rules before removing them."
-    )
-
-with tab_ai:
-    st.subheader("AI experiment: predicting a longer hospital stay")
-
-    st.write(
-        "This optional Random Forest experiment predicts whether a stay is "
-        "longer than the median stay in the currently analyzed sample. "
-        "It is a learning demonstration, not a clinical decision tool."
-    )
-
-    st.warning(
-        "This target is defined from the observed length of stay. The model "
-        "does not predict an actual future discharge date, treatment need, "
-        "or medical outcome. Results depend on the sample and available fields."
-    )
-
-    run_model = st.button(
-        "Train and evaluate model",
-        key="train_ai_model"
-    )
-
-    if run_model:
-        model_data = df.copy()
-        model_data = model_data[
-            model_data["Length_of_Stay"].notna()
-            & (model_data["Length_of_Stay"] > 0)
-        ]
-
-        model_data["Long_Stay"] = (
-            model_data["Length_of_Stay"]
-            > model_data["Length_of_Stay"].median()
-        ).astype(int)
-
-        numeric_features = []
-        categorical_features = [
-            "Age_Group",
-            "Gender",
-            "Race",
-            "Severity_Level",
-            "Diagnosis_Category",
-            "County",
-            "Payment_Type"
-        ]
-
-        for column in categorical_features:
-            if column not in model_data.columns:
-                model_data[column] = "Unknown"
-
-        feature_columns = numeric_features + categorical_features
-        X = model_data[feature_columns].copy()
-        y = model_data["Long_Stay"]
-
-        if len(model_data) < 100 or y.nunique() < 2:
-            st.error(
-                "There are not enough records or target classes to evaluate "
-                "the model reliably. Increase the sample size and check the data."
-            )
-        else:
-            X_train, X_test, y_train, y_test = train_test_split(
-                X,
-                y,
-                test_size=0.25,
-                random_state=42,
-                stratify=y
-            )
-
-            preprocessing = ColumnTransformer(
-                transformers=[
-                    (
-                        "categorical",
-                        Pipeline(steps=[
-                            (
-                                "imputer",
-                                SimpleImputer(
-                                    strategy="most_frequent"
-                                )
-                            ),
-                            (
-                                "encoder",
-                                OneHotEncoder(
-                                    handle_unknown="ignore"
-                                )
-                            )
-                        ]),
-                        categorical_features
-                    )
-                ],
-                remainder="drop"
-            )
-
-            model = Pipeline(steps=[
-                ("preprocessing", preprocessing),
-                (
-                    "classifier",
-                    RandomForestClassifier(
-                        n_estimators=120,
-                        max_depth=12,
-                        min_samples_leaf=3,
-                        class_weight="balanced",
-                        random_state=42,
-                        n_jobs=-1
-                    )
-                )
-            ])
-
-            try:
-                with st.spinner("Training and evaluating the model..."):
-                    model.fit(X_train, y_train)
-                    predictions = model.predict(X_test)
-
-                ai1, ai2, ai3, ai4 = st.columns(4)
-
-                with ai1:
-                    metric_card(
-                        "Accuracy",
-                        f"{accuracy_score(y_test, predictions):.3f}"
-                    )
-
-                with ai2:
-                    metric_card(
-                        "Precision",
-                        f"{precision_score(y_test, predictions, zero_division=0):.3f}"
-                    )
-
-                with ai3:
-                    metric_card(
-                        "Recall",
-                        f"{recall_score(y_test, predictions, zero_division=0):.3f}"
-                    )
-
-                with ai4:
-                    metric_card(
-                        "F1 score",
-                        f"{f1_score(y_test, predictions, zero_division=0):.3f}"
-                    )
-
-                matrix = confusion_matrix(
-                    y_test,
-                    predictions,
-                    labels=[0, 1]
-                )
-
-                matrix_frame = pd.DataFrame(
-                    matrix,
-                    index=["Actual not-long stay", "Actual long stay"],
-                    columns=["Predicted not-long stay", "Predicted long stay"]
-                )
-
-                fig = px.imshow(
-                    matrix_frame,
-                    text_auto=True,
-                    aspect="auto",
-                    color_continuous_scale="Blues",
-                    title="Test-set confusion matrix"
-                )
-
-                st.plotly_chart(
-                    style_chart(fig, 380),
-                    use_container_width=True
-                )
-
-                st.caption(
-                    f"Training records: {len(X_train):,}. "
-                    f"Test records: {len(X_test):,}. "
-                    "The test set was held out from model fitting."
-                )
-
-                st.write(
-                    "Compare the scores with a simple baseline before "
-                    "claiming that the model is useful. This experiment "
-                    "uses categorical fields and excludes length of stay "
-                    "from the predictor features to avoid direct target leakage."
-                )
-
-            except Exception as error:
-                st.error(
-                    f"The model could not be trained: {error}"
-                )
-
-with tab_data:
-    st.subheader("Filtered data explorer")
-
-    st.write(
-        f"Displaying {min(len(df), 5000):,} of {len(df):,} filtered records."
-    )
-
-    display_columns = [
-        "Facility_Name",
-        "County",
-        "Diagnosis_Category",
-        "Diagnosis_Code",
-        "Severity_Level",
-        "Age_Group",
-        "Gender",
-        "Race",
-        "Payment_Type",
-        "Length_of_Stay",
-        "Total_Charges",
-        "Discharge_Date"
-    ]
-
-    display_columns = [
-        column for column in display_columns
-        if column in df.columns
-    ]
-
-    st.dataframe(
-        df[display_columns].head(5000),
-        use_container_width=True,
-        hide_index=True
-    )
-
-    csv_bytes = df.to_csv(index=False).encode("utf-8")
-
-    st.download_button(
-        label="Download filtered records as CSV",
-        data=csv_bytes,
-        file_name="mediscope_filtered_discharges.csv",
-        mime="text/csv"
-    )
-
-    summary_csv = df.groupby(
-        ["County", "Severity_Level", "Payment_Type"],
-        dropna=False
-    ).agg(
-        Discharges=("Length_of_Stay", "size"),
-        Average_Stay=("Length_of_Stay", "mean"),
-        Valid_Charge_Records=("Total_Charges", "count"),
-        Average_Charge=("Total_Charges", "mean")
-    ).reset_index()
-
-    st.download_button(
-        label="Download aggregated summary as CSV",
-        data=summary_csv.to_csv(index=False).encode("utf-8"),
-        file_name="mediscope_summary.csv",
-        mime="text/csv"
-    )
+    with download_col2:
+        st.download_button(
+            "Download Analysis Summary",
+            data=summary_download.to_csv(index=False).encode("utf-8"),
+            file_name="SPARCS_2021_Analysis_Summary.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
 
 st.markdown("---")
 st.caption(
-    "MediScope Health Analytics · SPARCS 2021 · Educational analytics "
-    "project. Findings are descriptive and do not establish causation."
+    "MediScope Health Analytics · SPARCS inpatient discharge exploration. "
+    "Results describe the data loaded into this dashboard and should not be interpreted "
+    "as clinical recommendations or causal findings."
 )
