@@ -564,7 +564,7 @@ st.markdown(
 # SIDEBAR CONTROLS
 # ============================================================
 
-st.sidebar.title("Dashboard Controls")
+st.sidebar.title("🏥 Dashboard Controls")
 
 st.sidebar.markdown(
     "**Dataset:** SPARCS Hospital Inpatient Discharges 2021"
