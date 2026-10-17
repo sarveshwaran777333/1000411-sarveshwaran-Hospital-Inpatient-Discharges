@@ -9,33 +9,50 @@ import plotly.express as px
 # ============================================================
 
 st.set_page_config(
-    page_title="MediScope | Hospital Analytics",
+    page_title="MediScope | Health Analytics",
     page_icon="🏥",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-
-# ============================================================
-# CONSTANTS
-# ============================================================
-
 TARGET_FILE = (
     "Hospital_Inpatient_Discharges__SPARCS_De-Identified___2021_20231012.csv"
 )
 
-APP_TITLE = "MediScope Health Analytics"
-
 
 # ============================================================
-# CUSTOM CSS
+# NEON CSS THEME
 # ============================================================
 
 st.markdown(
     """
     <style>
-        .main {
-            background-color: #f5f7fb;
+        :root {
+            --neon-cyan: #00f5ff;
+            --neon-blue: #168aad;
+            --neon-purple: #bc13fe;
+            --neon-pink: #ff2bd6;
+            --dark-bg: #0b0f19;
+            --card-bg: #141b2d;
+            --text-color: #f1f5f9;
+        }
+
+        /* Main application background */
+
+        .stApp {
+            background:
+                radial-gradient(
+                    circle at 10% 10%,
+                    rgba(0, 245, 255, 0.07),
+                    transparent 35%
+                ),
+                radial-gradient(
+                    circle at 90% 80%,
+                    rgba(188, 19, 254, 0.08),
+                    transparent 35%
+                ),
+                var(--dark-bg);
+            color: var(--text-color);
         }
 
         .block-container {
@@ -43,42 +60,284 @@ st.markdown(
             padding-bottom: 2rem;
         }
 
+        /* Animated neon header */
+
         .dashboard-header {
-            padding: 1.5rem;
-            border-radius: 16px;
-            background: linear-gradient(120deg, #123b67, #168aad);
+            position: relative;
+            overflow: hidden;
+            padding: 1.8rem;
+            border-radius: 18px;
             color: white;
-            margin-bottom: 1.5rem;
+            background: linear-gradient(
+                120deg,
+                #071a33,
+                #064e69,
+                #321052,
+                #071a33
+            );
+            background-size: 300% 300%;
+            border: 1px solid var(--neon-cyan);
+            animation:
+                gradientMove 9s ease infinite,
+                neonPulse 3s ease-in-out infinite;
+            margin-bottom: 1.8rem;
         }
 
         .dashboard-header h1 {
+            color: #ffffff;
             margin: 0;
             font-size: 2.2rem;
+            text-shadow:
+                0 0 8px rgba(0, 245, 255, 0.9),
+                0 0 20px rgba(0, 245, 255, 0.5);
         }
 
         .dashboard-header p {
-            margin-top: 0.5rem;
+            color: #e0faff;
+            margin-top: 0.7rem;
             margin-bottom: 0;
-            font-size: 1rem;
         }
-        
+
+        .dashboard-header::after {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: -150%;
+            width: 70%;
+            height: 100%;
+            background: linear-gradient(
+                100deg,
+                transparent,
+                rgba(255, 255, 255, 0.13),
+                transparent
+            );
+            transform: skewX(-20deg);
+            animation: lightSweep 7s ease-in-out infinite;
+            pointer-events: none;
+        }
+
+        /* Neon KPI cards */
+
         div[data-testid="stMetric"] {
-        background: #1e293b;
-        color: #f8fafc;
-        padding: 1rem;
-        border-radius: 12px;
-        border: 1px solid #334155;
-        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.15);
-    }
-    div[data-testid="stMetric"] label,
-    div[data-testid="stMetric"] label p,
-    div[data-testid="stMetric"] [data-testid="stMetricLabel"],
-    div[data-testid="stMetric"] [data-testid="stMetricValue"],
-    div[data-testid="stMetric"] [data-testid="stMetricDelta"] {
-        color: #f8fafc !important;
-    }
-        h2, h3 {
-            color: #123b67;
+            background: linear-gradient(
+                145deg,
+                #172238,
+                #101827
+            );
+            color: #ffffff;
+            padding: 1.2rem;
+            border-radius: 14px;
+            border: 1px solid rgba(0, 245, 255, 0.55);
+            box-shadow:
+                0 0 7px rgba(0, 245, 255, 0.16),
+                inset 0 0 10px rgba(0, 245, 255, 0.035);
+            transition:
+                transform 0.3s ease,
+                box-shadow 0.3s ease,
+                border-color 0.3s ease;
+            animation: cardAppear 0.8s ease both;
+        }
+
+        div[data-testid="stMetric"]:hover {
+            transform: translateY(-5px);
+            border-color: var(--neon-cyan);
+            box-shadow:
+                0 0 12px rgba(0, 245, 255, 0.65),
+                0 0 28px rgba(0, 245, 255, 0.22),
+                inset 0 0 12px rgba(0, 245, 255, 0.08);
+        }
+
+        div[data-testid="stMetric"] label,
+        div[data-testid="stMetric"] label p,
+        div[data-testid="stMetric"] [data-testid="stMetricLabel"],
+        div[data-testid="stMetric"] [data-testid="stMetricValue"],
+        div[data-testid="stMetric"] [data-testid="stMetricDelta"] {
+            color: #f1fbff !important;
+        }
+
+        div[data-testid="stMetric"] [data-testid="stMetricValue"] {
+            text-shadow: 0 0 9px rgba(0, 245, 255, 0.35);
+        }
+
+        /* Sidebar styling */
+
+        section[data-testid="stSidebar"] {
+            background: linear-gradient(
+                180deg,
+                #111827,
+                #15112b,
+                #101827
+            );
+            border-right: 1px solid rgba(188, 19, 254, 0.45);
+        }
+
+        section[data-testid="stSidebar"] h1,
+        section[data-testid="stSidebar"] h2,
+        section[data-testid="stSidebar"] h3 {
+            color: #ffffff;
+            text-shadow: 0 0 8px rgba(188, 19, 254, 0.5);
+        }
+
+        section[data-testid="stSidebar"] p,
+        section[data-testid="stSidebar"] label {
+            color: #e2e8f0;
+        }
+
+        /* Input controls */
+
+        div[data-baseweb="select"] > div {
+            border-color: rgba(0, 245, 255, 0.35);
+            transition:
+                border-color 0.25s ease,
+                box-shadow 0.25s ease;
+        }
+
+        div[data-baseweb="select"] > div:hover {
+            border-color: var(--neon-cyan);
+            box-shadow: 0 0 9px rgba(0, 245, 255, 0.25);
+        }
+
+        div[data-testid="stSlider"] [role="slider"] {
+            box-shadow: 0 0 10px rgba(0, 245, 255, 0.6);
+        }
+
+        /* Headings */
+
+        h1, h2, h3 {
+            color: #e8faff;
+        }
+
+        div[data-testid="stMarkdownContainer"] h2 {
+            border-bottom: 1px solid rgba(0, 245, 255, 0.25);
+            padding-bottom: 0.45rem;
+        }
+
+        /* Chart borders and hover effects */
+
+        div[data-testid="stPlotlyChart"] {
+            border: 1px solid rgba(0, 245, 255, 0.23);
+            border-radius: 13px;
+            padding: 0.35rem;
+            background: rgba(16, 24, 39, 0.5);
+            transition:
+                border-color 0.3s ease,
+                box-shadow 0.3s ease;
+        }
+
+        div[data-testid="stPlotlyChart"]:hover {
+            border-color: rgba(0, 245, 255, 0.75);
+            box-shadow: 0 0 15px rgba(0, 245, 255, 0.12);
+        }
+
+        /* Buttons */
+
+        div.stButton > button,
+        div.stDownloadButton > button {
+            color: #ffffff;
+            background: linear-gradient(
+                100deg,
+                #073b4c,
+                #321052
+            );
+            border: 1px solid var(--neon-cyan);
+            border-radius: 9px;
+            transition: all 0.25s ease;
+        }
+
+        div.stButton > button:hover,
+        div.stDownloadButton > button:hover {
+            color: #ffffff;
+            border-color: var(--neon-pink);
+            box-shadow:
+                0 0 10px rgba(0, 245, 255, 0.45),
+                0 0 18px rgba(188, 19, 254, 0.25);
+            transform: translateY(-2px);
+        }
+
+        /* Tabs */
+
+        button[data-baseweb="tab"] {
+            transition: all 0.25s ease;
+        }
+
+        button[data-baseweb="tab"]:hover {
+            color: var(--neon-cyan);
+            text-shadow: 0 0 8px rgba(0, 245, 255, 0.6);
+        }
+
+        /* Expanders */
+
+        div[data-testid="stExpander"] {
+            border: 1px solid rgba(0, 245, 255, 0.25);
+            border-radius: 12px;
+            transition: box-shadow 0.3s ease;
+        }
+
+        div[data-testid="stExpander"]:hover {
+            box-shadow: 0 0 12px rgba(0, 245, 255, 0.12);
+        }
+
+        /* Dataframes */
+
+        div[data-testid="stDataFrame"] {
+            border: 1px solid rgba(0, 245, 255, 0.25);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        /* Neon divider */
+
+        hr {
+            border-color: rgba(0, 245, 255, 0.25);
+        }
+
+        /* Animations */
+
+        @keyframes gradientMove {
+            0%   { background-position: 0% 50%; }
+            50%  { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        @keyframes neonPulse {
+            0%, 100% {
+                box-shadow:
+                    0 0 8px rgba(0, 245, 255, 0.22),
+                    0 0 18px rgba(0, 245, 255, 0.08);
+            }
+            50% {
+                box-shadow:
+                    0 0 15px rgba(0, 245, 255, 0.42),
+                    0 0 30px rgba(188, 19, 254, 0.16);
+            }
+        }
+
+        @keyframes lightSweep {
+            0%, 65% { left: -150%; }
+            100% { left: 180%; }
+        }
+
+        @keyframes cardAppear {
+            from {
+                opacity: 0;
+                transform: translateY(12px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Accessibility */
+
+        @media (prefers-reduced-motion: reduce) {
+            *,
+            *::before,
+            *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+            }
         }
     </style>
     """,
@@ -91,24 +350,21 @@ st.markdown(
 # ============================================================
 
 def find_column(dataframe, possible_names):
-    """
-    Find one matching column without renaming multiple columns
-    to the same standardized name.
-    """
+    """Find one matching source column."""
 
     normalized_columns = {
         str(column).strip().lower(): column
         for column in dataframe.columns
     }
 
-    # First look for exact matches
+    # Exact matches first
     for possible_name in possible_names:
         possible_name = possible_name.lower()
 
         if possible_name in normalized_columns:
             return normalized_columns[possible_name]
 
-    # Then look for partial matches
+    # Partial matches second
     for possible_name in possible_names:
         possible_name = possible_name.lower()
 
@@ -120,17 +376,12 @@ def find_column(dataframe, possible_names):
 
 
 # ============================================================
-# DATA LOADING AND PREPROCESSING
+# LOAD AND PREPROCESS DATA
 # ============================================================
 
 @st.cache_data(show_spinner=False)
 def load_sparcs_data(file_path, max_rows=50000):
-    """
-    Load and preprocess the fixed SPARCS 2021 dataset.
-
-    max_rows=None loads the complete dataset.
-    No external dataset upload is supported.
-    """
+    """Load and clean the fixed SPARCS 2021 dataset."""
 
     if not os.path.exists(file_path):
         raise FileNotFoundError(
@@ -148,7 +399,6 @@ def load_sparcs_data(file_path, max_rows=50000):
         :, ~dataframe.columns.duplicated()
     ].copy()
 
-    # Map source columns to standardized column names
     column_mapping = {
         "Length_of_Stay": [
             "length of stay"
@@ -201,11 +451,10 @@ def load_sparcs_data(file_path, max_rows=50000):
         columns=rename_mapping
     )
 
-    # Required field validation
     if "Length_of_Stay" not in dataframe.columns:
         raise ValueError(
-            "The dataset does not contain a recognizable "
-            "'Length of Stay' column."
+            "Could not find a recognizable Length of Stay column "
+            "in the SPARCS dataset."
         )
 
     # Clean length of stay
@@ -221,13 +470,13 @@ def load_sparcs_data(file_path, max_rows=50000):
         errors="coerce"
     )
 
-    # Remove missing, invalid, and non-positive stays
+    # Remove invalid and non-positive stays
     dataframe = dataframe[
         dataframe["Length_of_Stay"].notna()
         & (dataframe["Length_of_Stay"] > 0)
     ].copy()
 
-    # Clean total charges
+    # Convert hospital charges to numeric
     if "Total_Charges" in dataframe.columns:
         dataframe["Total_Charges"] = (
             dataframe["Total_Charges"]
@@ -244,7 +493,7 @@ def load_sparcs_data(file_path, max_rows=50000):
     else:
         dataframe["Total_Charges"] = float("nan")
 
-    # Create fallback columns if source fields are unavailable
+    # Fallback values for unavailable columns
     fallback_columns = {
         "Facility_Name": "Unknown Facility",
         "County": "Unknown County",
@@ -267,7 +516,7 @@ def load_sparcs_data(file_path, max_rows=50000):
             .replace("", default_value)
         )
 
-    # Standardize gender labels
+    # Standardize gender
     dataframe["Gender"] = (
         dataframe["Gender"]
         .str.strip()
@@ -278,28 +527,23 @@ def load_sparcs_data(file_path, max_rows=50000):
         })
     )
 
-    # Standardize severity labels
+    # Standardize severity and payment labels
     dataframe["Severity_Level"] = (
-        dataframe["Severity_Level"]
-        .str.strip()
-        .str.title()
+        dataframe["Severity_Level"].str.strip().str.title()
     )
 
-    # Standardize payment labels
     dataframe["Payment_Type"] = (
-        dataframe["Payment_Type"]
-        .str.strip()
-        .str.title()
+        dataframe["Payment_Type"].str.strip().str.title()
     )
 
-    # Remove duplicate rows
+    # Remove duplicate records
     dataframe = dataframe.drop_duplicates().copy()
 
     return dataframe
 
 
 # ============================================================
-# HEADER
+# NEON DASHBOARD HEADER
 # ============================================================
 
 st.markdown(
@@ -317,15 +561,13 @@ st.markdown(
 
 
 # ============================================================
-# SIDEBAR
+# SIDEBAR CONTROLS
 # ============================================================
 
 st.sidebar.title("Dashboard Controls")
 
 st.sidebar.markdown(
-    """
-    **Dataset:** SPARCS Hospital Inpatient Discharges 2021
-    """
+    "**Dataset:** SPARCS Hospital Inpatient Discharges 2021"
 )
 
 st.sidebar.divider()
@@ -354,7 +596,7 @@ max_rows = sample_sizes[sample_option]
 
 
 # ============================================================
-# LOAD DATA
+# LOAD DATASET
 # ============================================================
 
 try:
@@ -369,21 +611,15 @@ except FileNotFoundError:
         "The SPARCS dataset could not be found. "
         "Place the CSV file in the same folder as app.py."
     )
-
     st.code(TARGET_FILE)
     st.stop()
 
 except Exception as error:
-    st.error(
-        f"Unable to load the dataset: {error}"
-    )
+    st.error(f"Unable to load the dataset: {error}")
     st.stop()
 
-
 if df.empty:
-    st.warning(
-        "No valid hospital discharge records were found."
-    )
+    st.warning("No valid hospital discharge records were found.")
     st.stop()
 
 
@@ -440,10 +676,9 @@ if selected_payment:
         filtered_df["Payment_Type"].isin(selected_payment)
     ]
 
-
 if filtered_df.empty:
     st.warning(
-        "No records match the selected filters. "
+        "No records match your selected filters. "
         "Change or clear your filters."
     )
     st.stop()
@@ -457,17 +692,11 @@ st.subheader("Hospital Discharge Overview")
 
 total_discharges = len(filtered_df)
 
-average_stay = filtered_df[
-    "Length_of_Stay"
-].mean()
+average_stay = filtered_df["Length_of_Stay"].mean()
 
-total_charges = filtered_df[
-    "Total_Charges"
-].sum(min_count=1)
+total_charges = filtered_df["Total_Charges"].sum(min_count=1)
 
-average_charges = filtered_df[
-    "Total_Charges"
-].mean()
+average_charges = filtered_df["Total_Charges"].mean()
 
 col1, col2, col3, col4 = st.columns(4)
 
@@ -499,11 +728,9 @@ col4.metric(
     )
 )
 
-
 st.caption(
-    "KPIs reflect the currently loaded rows and selected filters. "
-    "When a sample is selected, results describe that sample rather "
-    "than the complete dataset."
+    "KPIs reflect the loaded rows and selected filters. "
+    "A sample may not represent the complete dataset."
 )
 
 st.divider()
@@ -516,8 +743,6 @@ st.divider()
 with st.expander("Research Questions"):
     st.markdown(
         """
-        This dashboard investigates the following questions:
-
         1. Which diagnosis categories have the longest average hospital stays?
         2. How do hospital charges vary across severity levels?
         3. How does average length of stay vary by hospital and county?
@@ -545,10 +770,7 @@ diagnosis_summary = (
             "Length_of_Stay": "Average_Stay"
         }
     )
-    .sort_values(
-        "Average_Stay",
-        ascending=False
-    )
+    .sort_values("Average_Stay", ascending=False)
 )
 
 top_diagnoses = diagnosis_summary.head(15)
@@ -564,18 +786,23 @@ fig_diagnosis = px.bar(
         "Diagnosis_Category": "Diagnosis Category"
     },
     color="Average_Stay",
-    color_continuous_scale="Blues"
+    color_continuous_scale=[
+        "#10243a",
+        "#0077b6",
+        "#00f5ff"
+    ],
+    template="plotly_dark"
 )
 
 fig_diagnosis.update_layout(
     yaxis={"categoryorder": "total ascending"},
-    height=550
+    height=550,
+    paper_bgcolor="rgba(0,0,0,0)",
+    plot_bgcolor="rgba(10,15,30,0.65)",
+    font_color="#e8faff"
 )
 
-st.plotly_chart(
-    fig_diagnosis,
-    use_container_width=True
-)
+st.plotly_chart(fig_diagnosis, use_container_width=True)
 
 if not diagnosis_summary.empty:
     longest_diagnosis = diagnosis_summary.iloc[0]
@@ -609,28 +836,33 @@ if not charges_data.empty:
             "Severity_Level": "Severity Level",
             "Total_Charges": "Total Hospital Charges ($)"
         },
-        points="outliers"
+        points="outliers",
+        template="plotly_dark",
+        color_discrete_sequence=[
+            "#00f5ff",
+            "#bc13fe",
+            "#ff2bd6",
+            "#168aad"
+        ]
     )
 
     fig_charges.update_layout(
         showlegend=False,
-        height=500
+        height=500,
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(10,15,30,0.65)",
+        font_color="#e8faff"
     )
 
-    st.plotly_chart(
-        fig_charges,
-        use_container_width=True
-    )
+    st.plotly_chart(fig_charges, use_container_width=True)
 
     st.caption(
-        "Box plots show the median, spread, and potential outliers. "
-        "Extreme charges can make differences between groups harder "
-        "to see, so interpret the distribution as well as the median."
+        "Box plots display medians, spread, and potential outliers. "
+        "Extreme charges may affect how differences appear."
     )
 else:
     st.warning(
-        "No valid numeric hospital charge values are available "
-        "for the selected records."
+        "No valid numeric hospital charge values are available."
     )
 
 
@@ -656,11 +888,9 @@ facility_summary = (
 )
 
 if not facility_summary.empty:
-    # Limit the heatmap to a manageable number of facilities
-    # with the highest average length of stay.
-    selected_facilities = (
-        facility_summary
-        .nlargest(20, "Average_Stay")
+    selected_facilities = facility_summary.nlargest(
+        20,
+        "Average_Stay"
     )
 
     heatmap_data = selected_facilities.pivot_table(
@@ -673,32 +903,34 @@ if not facility_summary.empty:
     fig_heatmap = px.imshow(
         heatmap_data,
         aspect="auto",
-        color_continuous_scale="Blues",
+        color_continuous_scale=[
+            "#101827",
+            "#075985",
+            "#00f5ff"
+        ],
         title="Average Stay for Selected Facilities",
         labels={
             "x": "County",
             "y": "Facility",
             "color": "Average Stay (Days)"
-        }
+        },
+        template="plotly_dark"
     )
 
     fig_heatmap.update_layout(
-        height=600
+        height=600,
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(10,15,30,0.65)",
+        font_color="#e8faff"
     )
 
-    st.plotly_chart(
-        fig_heatmap,
-        use_container_width=True
-    )
+    st.plotly_chart(fig_heatmap, use_container_width=True)
 else:
-    st.info(
-        "Facility and county information is unavailable "
-        "for the selected records."
-    )
+    st.info("Facility and county information is unavailable.")
 
 
 # ============================================================
-# VISUALIZATION 4: PAYMENT TYPE PIE CHART
+# VISUALIZATION 4: PAYMENT TYPE
 # ============================================================
 
 st.subheader("4. Discharges by Payment Type")
@@ -719,18 +951,32 @@ fig_payment = px.pie(
     names="Payment_Type",
     values="Discharges",
     title="Share of Discharges by Payment Type",
-    hole=0.35
+    hole=0.4,
+    template="plotly_dark",
+    color_discrete_sequence=[
+        "#00f5ff",
+        "#bc13fe",
+        "#ff2bd6",
+        "#168aad",
+        "#7c3aed",
+        "#06d6a0",
+        "#ffd166"
+    ]
 )
 
 fig_payment.update_traces(
     textposition="inside",
-    textinfo="percent+label"
+    textinfo="percent+label",
+    marker_line_color="#0b0f19",
+    marker_line_width=2
 )
 
-st.plotly_chart(
-    fig_payment,
-    use_container_width=True
+fig_payment.update_layout(
+    paper_bgcolor="rgba(0,0,0,0)",
+    font_color="#e8faff"
 )
+
+st.plotly_chart(fig_payment, use_container_width=True)
 
 
 # ============================================================
@@ -752,28 +998,33 @@ fig_stay = px.histogram(
         "Length_of_Stay": "Length of Stay (Days)",
         "count": "Number of Discharges"
     },
-    color_discrete_sequence=["#168aad"]
+    color_discrete_sequence=["#00f5ff"],
+    template="plotly_dark"
 )
 
 fig_stay.update_layout(
     height=450,
-    bargap=0.05
+    bargap=0.05,
+    paper_bgcolor="rgba(0,0,0,0)",
+    plot_bgcolor="rgba(10,15,30,0.65)",
+    font_color="#e8faff"
 )
 
-st.plotly_chart(
-    fig_stay,
-    use_container_width=True
+fig_stay.update_traces(
+    marker_line_color="#bc13fe",
+    marker_line_width=0.7
 )
+
+st.plotly_chart(fig_stay, use_container_width=True)
 
 st.caption(
     "This histogram focuses on stays of 30 days or fewer. "
-    "Longer stays are excluded from this chart only, not from "
-    "the other dashboard calculations."
+    "Longer stays remain included in the other calculations."
 )
 
 
 # ============================================================
-# ADDITIONAL ANALYSIS: CHARGES BY AGE GROUP
+# VISUALIZATION 6: CHARGES BY AGE GROUP
 # ============================================================
 
 st.divider()
@@ -790,14 +1041,8 @@ age_summary = (
             "Total_Charges": "Average_Charges"
         }
     )
-    .sort_values(
-        "Average_Charges",
-        ascending=False
-    )
-)
-
-age_summary = age_summary.dropna(
-    subset=["Average_Charges"]
+    .sort_values("Average_Charges", ascending=False)
+    .dropna(subset=["Average_Charges"])
 )
 
 if not age_summary.empty:
@@ -806,30 +1051,33 @@ if not age_summary.empty:
         x="Age_Group",
         y="Average_Charges",
         color="Average_Charges",
-        color_continuous_scale="Teal",
+        color_continuous_scale=[
+            "#10243a",
+            "#0077b6",
+            "#00f5ff"
+        ],
         title="Average Hospital Charges by Age Group",
         labels={
             "Age_Group": "Age Group",
             "Average_Charges": "Average Charges ($)"
-        }
+        },
+        template="plotly_dark"
     )
 
     fig_age.update_layout(
-        height=450
+        height=450,
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(10,15,30,0.65)",
+        font_color="#e8faff"
     )
 
-    st.plotly_chart(
-        fig_age,
-        use_container_width=True
-    )
+    st.plotly_chart(fig_age, use_container_width=True)
 else:
-    st.info(
-        "There are no valid charge values for the age-group analysis."
-    )
+    st.info("No valid charge values are available for age analysis.")
 
 
 # ============================================================
-# ADDITIONAL ANALYSIS: GENDER AND SEVERITY
+# VISUALIZATION 7: GENDER AND SEVERITY
 # ============================================================
 
 st.subheader("7. Discharges by Gender and Severity")
@@ -840,31 +1088,44 @@ gender_severity = pd.crosstab(
 )
 
 if not gender_severity.empty:
-    fig_gender = px.bar(
-        gender_severity.reset_index().melt(
+    gender_plot_data = (
+        gender_severity
+        .reset_index()
+        .melt(
             id_vars="Gender",
             var_name="Severity Level",
             value_name="Discharges"
-        ),
+        )
+    )
+
+    fig_gender = px.bar(
+        gender_plot_data,
         x="Gender",
         y="Discharges",
         color="Severity Level",
         barmode="group",
-        title="Discharges by Gender and Severity Level"
+        title="Discharges by Gender and Severity Level",
+        template="plotly_dark",
+        color_discrete_sequence=[
+            "#00f5ff",
+            "#bc13fe",
+            "#ff2bd6",
+            "#168aad"
+        ]
     )
 
     fig_gender.update_layout(
-        height=450
+        height=450,
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(10,15,30,0.65)",
+        font_color="#e8faff"
     )
 
-    st.plotly_chart(
-        fig_gender,
-        use_container_width=True
-    )
+    st.plotly_chart(fig_gender, use_container_width=True)
 
 
 # ============================================================
-# DATA TABLES
+# SUMMARY TABLES
 # ============================================================
 
 st.divider()
@@ -898,10 +1159,7 @@ with tab2:
             Average_Stay=("Length_of_Stay", "mean"),
             Average_Charges=("Total_Charges", "mean")
         )
-        .sort_values(
-            "Discharges",
-            ascending=False
-        )
+        .sort_values("Discharges", ascending=False)
     )
 
     st.dataframe(
@@ -919,10 +1177,7 @@ with tab3:
             Average_Stay=("Length_of_Stay", "mean"),
             Average_Charges=("Total_Charges", "mean")
         )
-        .sort_values(
-            "Discharges",
-            ascending=False
-        )
+        .sort_values("Discharges", ascending=False)
     )
 
     st.dataframe(
@@ -933,7 +1188,7 @@ with tab3:
 
 
 # ============================================================
-# DATA EXPLORER
+# DATA EXPLORER AND CSV DOWNLOAD
 # ============================================================
 
 st.divider()
@@ -967,13 +1222,33 @@ with st.expander("Explore Processed Dataset"):
 
 st.divider()
 
-st.caption(
-    "MediScope Health Analytics | CRS: Artificial Intelligence | "
-    "Dataset: SPARCS Hospital Inpatient Discharges, 2021"
+st.markdown(
+    """
+    <div style="
+        text-align: center;
+        padding: 1rem;
+        border: 1px solid rgba(0,245,255,0.25);
+        border-radius: 12px;
+        background: rgba(16,24,39,0.5);
+    ">
+        <p style="
+            color: #00f5ff;
+            margin-bottom: 0.4rem;
+            text-shadow: 0 0 8px rgba(0,245,255,0.3);
+        ">
+            <strong>MediScope Health Analytics</strong>
+        </p>
+        <p style="color: #cbd5e1; margin: 0;">
+            CRS: Artificial Intelligence |
+            SPARCS Hospital Inpatient Discharges, 2021
+        </p>
+    </div>
+    """,
+    unsafe_allow_html=True
 )
 
 st.caption(
     "This dashboard supports exploratory analysis. "
-    "Observed associations do not establish causation, and "
-    "the loaded sample may not represent the complete dataset."
+    "Associations do not establish causation, and sampled records "
+    "may not represent the complete dataset."
 )
