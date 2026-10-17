@@ -325,9 +325,6 @@ st.sidebar.title("Dashboard Controls")
 st.sidebar.markdown(
     """
     **Dataset:** SPARCS Hospital Inpatient Discharges 2021
-
-    This dashboard uses the fixed project dataset.
-    Uploading other datasets is disabled.
     """
 )
 
