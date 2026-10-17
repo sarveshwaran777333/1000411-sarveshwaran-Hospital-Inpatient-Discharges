@@ -61,15 +61,22 @@ st.markdown(
             margin-bottom: 0;
             font-size: 1rem;
         }
-
+        
         div[data-testid="stMetric"] {
-            background: white;
-            padding: 1rem;
-            border-radius: 12px;
-            border: 1px solid #e4eaf2;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.04);
-        }
-
+        background: #1e293b;
+        color: #f8fafc;
+        padding: 1rem;
+        border-radius: 12px;
+        border: 1px solid #334155;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.15);
+    }
+    div[data-testid="stMetric"] label,
+    div[data-testid="stMetric"] label p,
+    div[data-testid="stMetric"] [data-testid="stMetricLabel"],
+    div[data-testid="stMetric"] [data-testid="stMetricValue"],
+    div[data-testid="stMetric"] [data-testid="stMetricDelta"] {
+        color: #f8fafc !important;
+    }
         h2, h3 {
             color: #123b67;
         }
