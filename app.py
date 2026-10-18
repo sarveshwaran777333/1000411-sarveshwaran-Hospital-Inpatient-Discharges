@@ -998,7 +998,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-<CodeBlock language="python" editable>
 import os
 import glob
 import streamlit as st
