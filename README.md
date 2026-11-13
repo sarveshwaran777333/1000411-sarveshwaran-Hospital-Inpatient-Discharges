@@ -679,8 +679,7 @@ https://github.com/sarveshwaran777333/1000411-sarveshwaran-Hospital-Inpatient-Di
 
 **Live Demo:**
 
-Add the deployed Streamlit application URL here after deployment.
-
+https://1000411-sarveshwaran-hospital-inpatient-discharges-cnptg9nvq8j.streamlit.app/
 ---
 
 ## 👨‍💻 Project Information
