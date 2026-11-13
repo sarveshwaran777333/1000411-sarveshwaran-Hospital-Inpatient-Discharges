@@ -1235,22 +1235,6 @@ with st.sidebar:
     st.divider()
 
     st.markdown(
-        '<div class="section-label">Dataset information</div>',
-        unsafe_allow_html=True,
-    )
-
-    st.caption(f"File: {dataset_path.name}")
-    st.caption(f"File size: {file_size / (1024 ** 2):,.1f} MB")
-    st.caption(f"Loaded rows: {len(raw_df):,}")
-
-    if file_size > 250 * 1024 * 1024:
-        st.warning(
-            "Large dataset detected. A sample is loaded to reduce memory usage."
-        )
-
-    st.divider()
-
-    st.markdown(
         '<div class="section-label">Filters</div>',
         unsafe_allow_html=True,
     )
